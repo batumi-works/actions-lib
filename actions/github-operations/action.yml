@@ -1,0 +1,175 @@
+name: 'GitHub Operations'
+description: 'Common GitHub API operations for PRs, issues, and comments'
+inputs:
+  github_token:
+    description: 'GitHub token for API operations'
+    required: true
+  operation:
+    description: 'Type of operation: create-pr, comment-issue, comment-pr, check-bot-status'
+    required: true
+  issue_number:
+    description: 'GitHub issue number'
+    required: false
+  pr_title:
+    description: 'Pull request title'
+    required: false
+  pr_body:
+    description: 'Pull request body'
+    required: false
+  pr_head:
+    description: 'Pull request head branch'
+    required: false
+  pr_base:
+    description: 'Pull request base branch'
+    required: false
+    default: 'main'
+  comment_body:
+    description: 'Comment body text'
+    required: false
+  bot_username:
+    description: 'Bot username to check for existing comments'
+    required: false
+    default: 'Claude AI Bot'
+  draft_pr:
+    description: 'Create PR as draft'
+    required: false
+    default: 'false'
+
+outputs:
+  pr_number:
+    description: 'Created PR number'
+    value: ${{ steps.create-pr.outputs.pr_number }}
+  pr_url:
+    description: 'Created PR URL'
+    value: ${{ steps.create-pr.outputs.pr_url }}
+  should_process:
+    description: 'Whether bot should process (for bot status check)'
+    value: ${{ steps.check-bot-status.outputs.should_process }}
+  comment_id:
+    description: 'Created comment ID'
+    value: ${{ steps.comment.outputs.comment_id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create Pull Request
+      id: create-pr
+      if: inputs.operation == 'create-pr'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const prTitle = '${{ inputs.pr_title }}';
+          const prBody = '${{ inputs.pr_body }}';
+          const prHead = '${{ inputs.pr_head }}';
+          const prBase = '${{ inputs.pr_base }}';
+          const isDraft = '${{ inputs.draft_pr }}' === 'true';
+          
+          try {
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: prTitle,
+              head: prHead,
+              base: prBase,
+              body: prBody,
+              draft: isDraft
+            });
+            
+            core.setOutput('pr_number', pr.data.number);
+            core.setOutput('pr_url', pr.data.html_url);
+            
+            console.log(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
+          } catch (error) {
+            core.setFailed(`Failed to create PR: ${error.message}`);
+          }
+
+    - name: Comment on Issue
+      id: comment
+      if: inputs.operation == 'comment-issue'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const issueNumber = parseInt('${{ inputs.issue_number }}');
+          const commentBody = '${{ inputs.comment_body }}';
+          
+          try {
+            const comment = await github.rest.issues.createComment({
+              issue_number: issueNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
+            
+            core.setOutput('comment_id', comment.data.id);
+            console.log(`Created comment: ${comment.data.html_url}`);
+          } catch (error) {
+            core.setFailed(`Failed to create comment: ${error.message}`);
+          }
+
+    - name: Check Bot Status
+      id: check-bot-status
+      if: inputs.operation == 'check-bot-status'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const issueNumber = parseInt('${{ inputs.issue_number }}');
+          const botUsername = '${{ inputs.bot_username }}';
+          
+          try {
+            // Get all comments for this issue
+            const comments = await github.rest.issues.listComments({
+              issue_number: issueNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            
+            // Check if last comment is from the bot
+            const lastComment = comments.data[comments.data.length - 1];
+            const shouldProcess = !lastComment || lastComment.user.login !== botUsername;
+            
+            core.setOutput('should_process', shouldProcess);
+            console.log(`Should process issue: ${shouldProcess}`);
+            
+            if (shouldProcess) {
+              // Get issue details for context
+              const issue = await github.rest.issues.get({
+                issue_number: issueNumber,
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+              
+              let discussionContext = `# Issue: ${issue.data.title}\n\n${issue.data.body}\n\n`;
+              
+              if (comments.data.length > 0) {
+                discussionContext += '## Discussion:\n\n';
+                for (const comment of comments.data) {
+                  discussionContext += `**${comment.user.login}** (${comment.created_at}):\n${comment.body}\n\n`;
+                }
+              }
+              
+              // Save context to file for use in subsequent steps
+              const fs = require('fs');
+              fs.writeFileSync('/tmp/discussion-context.md', discussionContext);
+              console.log('Created discussion context file');
+            }
+          } catch (error) {
+            core.setFailed(`Failed to check bot status: ${error.message}`);
+          }
+
+    - name: Prepare Dynamic Prompt
+      if: inputs.operation == 'check-bot-status' && steps.check-bot-status.outputs.should_process == 'true'
+      shell: bash
+      run: |
+        # Check if PRP base create template exists
+        if [ -f ".claude/commands/PRPs/prp-base-create.md" ]; then
+          template_content=$(cat .claude/commands/PRPs/prp-base-create.md)
+          discussion_context=$(cat /tmp/discussion-context.md)
+          echo "$template_content" | sed "s/\$ARGUMENTS/$discussion_context/g" > /tmp/dynamic-prompt.md
+          echo "::notice::Created dynamic prompt with discussion context"
+        else
+          echo "::warning::PRP base create template not found, using discussion context directly"
+          cp /tmp/discussion-context.md /tmp/dynamic-prompt.md
+        fi

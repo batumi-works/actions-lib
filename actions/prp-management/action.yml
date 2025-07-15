@@ -1,0 +1,110 @@
+name: 'PRP Management'
+description: 'Common PRP file and branch management operations'
+inputs:
+  comment_body:
+    description: 'GitHub comment body containing PRP path'
+    required: true
+  issue_number:
+    description: 'GitHub issue number'
+    required: true
+  create_branch:
+    description: 'Whether to create implementation branch'
+    required: false
+    default: 'true'
+  move_to_done:
+    description: 'Whether to move PRP to done folder after processing'
+    required: false
+    default: 'true'
+
+outputs:
+  prp_path:
+    description: 'Path to the PRP file'
+    value: ${{ steps.extract-prp.outputs.prp_path }}
+  prp_name:
+    description: 'Name of the PRP file (without extension)'
+    value: ${{ steps.extract-prp.outputs.prp_name }}
+  branch_name:
+    description: 'Name of the implementation branch'
+    value: ${{ steps.extract-prp.outputs.branch_name }}
+  has_prp:
+    description: 'Whether a valid PRP was found'
+    value: ${{ steps.extract-prp.outputs.has_prp }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Extract PRP File Path
+      id: extract-prp
+      shell: bash
+      run: |
+        # Extract PRP path from comment body
+        comment_body='${{ inputs.comment_body }}'
+        
+        # Look for PRP file pattern
+        prp_match=$(echo "$comment_body" | grep -oE 'PRPs/[^[:space:]\)]+\.md' | head -1)
+        
+        if [ -z "$prp_match" ]; then
+          echo "has_prp=false" >> $GITHUB_OUTPUT
+          echo "::notice::No PRP file path found in comment"
+          exit 0
+        fi
+        
+        # Validate PRP file exists
+        if [ ! -f "$prp_match" ]; then
+          echo "has_prp=false" >> $GITHUB_OUTPUT
+          echo "::error::PRP file does not exist: $prp_match"
+          exit 1
+        fi
+        
+        # Extract PRP name and generate branch name
+        prp_name=$(basename "$prp_match" .md)
+        branch_name="implement/${prp_name}-$(date +%s)"
+        
+        echo "prp_path=$prp_match" >> $GITHUB_OUTPUT
+        echo "prp_name=$prp_name" >> $GITHUB_OUTPUT
+        echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+        echo "has_prp=true" >> $GITHUB_OUTPUT
+        
+        echo "::notice::Found PRP: $prp_match"
+        echo "::notice::Branch name: $branch_name"
+
+    - name: Create Implementation Branch
+      if: steps.extract-prp.outputs.has_prp == 'true' && inputs.create_branch == 'true'
+      shell: bash
+      run: |
+        git checkout -b "${{ steps.extract-prp.outputs.branch_name }}"
+        echo "::notice::Created branch: ${{ steps.extract-prp.outputs.branch_name }}"
+
+    - name: Move PRP to Done
+      if: steps.extract-prp.outputs.has_prp == 'true' && inputs.move_to_done == 'true'
+      shell: bash
+      run: |
+        prp_path="${{ steps.extract-prp.outputs.prp_path }}"
+        prp_name="${{ steps.extract-prp.outputs.prp_name }}"
+        
+        # Create done directory if it doesn't exist
+        mkdir -p PRPs/done
+        
+        # Move PRP to done folder
+        if [ -f "$prp_path" ]; then
+          mv "$prp_path" "PRPs/done/${prp_name}.md"
+          echo "::notice::Moved PRP to done: PRPs/done/${prp_name}.md"
+        else
+          echo "::warning::PRP file not found for moving: $prp_path"
+        fi
+
+    - name: Prepare Implementation Prompt
+      if: steps.extract-prp.outputs.has_prp == 'true'
+      shell: bash
+      run: |
+        prp_path="${{ steps.extract-prp.outputs.prp_path }}"
+        
+        # Check if PRP base execute template exists
+        if [ -f ".claude/commands/PRPs/prp-base-execute.md" ]; then
+          template_content=$(cat .claude/commands/PRPs/prp-base-execute.md)
+          echo "$template_content" | sed "s/\$ARGUMENTS/$prp_path/g" > /tmp/prp-implementation-prompt.md
+          echo "::notice::Created implementation prompt for: $prp_path"
+        else
+          echo "::warning::PRP base execute template not found, creating basic prompt"
+          echo "Please implement the PRP located at: $prp_path" > /tmp/prp-implementation-prompt.md
+        fi

@@ -1,0 +1,62 @@
+name: 'Claude Setup'
+description: 'Common setup steps for Claude Code workflows'
+inputs:
+  claude_oauth_token:
+    description: 'Claude Code OAuth token'
+    required: true
+  github_token:
+    description: 'GitHub token for repository access'
+    required: true
+  fetch_depth:
+    description: 'Number of commits to fetch'
+    required: false
+    default: '0'
+  git_user_name:
+    description: 'Git user name for commits'
+    required: false
+    default: 'Claude AI Bot'
+  git_user_email:
+    description: 'Git user email for commits'
+    required: false
+    default: 'claude-ai@users.noreply.github.com'
+  configure_git:
+    description: 'Whether to configure git user'
+    required: false
+    default: 'true'
+
+outputs:
+  repository_path:
+    description: 'Path to the checked out repository'
+    value: ${{ steps.checkout.outputs.repository_path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      id: checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: ${{ inputs.fetch_depth }}
+        token: ${{ inputs.github_token }}
+
+    - name: Configure Git
+      if: inputs.configure_git == 'true'
+      shell: bash
+      run: |
+        git config --global user.name "${{ inputs.git_user_name }}"
+        git config --global user.email "${{ inputs.git_user_email }}"
+
+    - name: Validate Claude OAuth Token
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.claude_oauth_token }}" ]; then
+          echo "::error::Claude OAuth token is required"
+          exit 1
+        fi
+        echo "Claude OAuth token validation passed"
+
+    - name: Set repository path output
+      id: set-path
+      shell: bash
+      run: |
+        echo "repository_path=${{ github.workspace }}" >> $GITHUB_OUTPUT

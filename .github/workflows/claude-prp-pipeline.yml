@@ -1,0 +1,204 @@
+name: 'Claude PRP Implementation Pipeline'
+
+on:
+  workflow_call:
+    inputs:
+      api_provider:
+        description: 'API provider: anthropic or moonshot'
+        required: false
+        type: string
+        default: 'anthropic'
+      anthropic_base_url:
+        description: 'Base URL for Anthropic API (for Moonshot compatibility)'
+        required: false
+        type: string
+        default: ''
+      timeout_minutes:
+        description: 'Timeout for Claude Code execution'
+        required: false
+        type: number
+        default: 90
+      allowed_tools:
+        description: 'Allowed tools for Claude Code'
+        required: false
+        type: string
+        default: 'Bash(git:*),Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'
+      claude_model:
+        description: 'Claude model to use'
+        required: false
+        type: string
+        default: 'claude-sonnet-4-20250514'
+      skip_pr_check:
+        description: 'Skip PR reference check (for debugging)'
+        required: false
+        type: boolean
+        default: false
+      git_user_name:
+        description: 'Git user name for commits'
+        required: false
+        type: string
+        default: 'Claude PRP Implementation Bot'
+      git_user_email:
+        description: 'Git user email for commits'
+        required: false
+        type: string
+        default: 'claude-prp-bot@users.noreply.github.com'
+    secrets:
+      claude_oauth_token:
+        description: 'Claude Code OAuth token'
+        required: false
+      anthropic_auth_token:
+        description: 'Anthropic API token (for Moonshot)'
+        required: false
+      github_token:
+        description: 'GitHub token'
+        required: true
+
+jobs:
+  implement-prp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    
+    # Skip if comment references a PR (unless explicitly disabled)
+    if: ${{ inputs.skip_pr_check || !contains(github.event.comment.body, 'PR #') }}
+    
+    steps:
+      - name: Validate API Configuration
+        run: |
+          if [ "${{ inputs.api_provider }}" = "anthropic" ] && [ -z "${{ secrets.claude_oauth_token }}" ]; then
+            echo "::error::claude_oauth_token is required for Anthropic API"
+            exit 1
+          fi
+          
+          if [ "${{ inputs.api_provider }}" = "moonshot" ] && [ -z "${{ secrets.anthropic_auth_token }}" ]; then
+            echo "::error::anthropic_auth_token is required for Moonshot API"
+            exit 1
+          fi
+          
+          echo "API configuration validated for: ${{ inputs.api_provider }}"
+
+      - name: Setup Claude Environment
+        uses: batumi-works/actions-lib/actions/claude-setup@v1
+        with:
+          claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
+          github_token: ${{ secrets.github_token }}
+          git_user_name: ${{ inputs.git_user_name }}
+          git_user_email: ${{ inputs.git_user_email }}
+          fetch_depth: 0
+
+      - name: Manage PRP
+        id: prp
+        uses: batumi-works/actions-lib/actions/prp-management@v1
+        with:
+          comment_body: ${{ github.event.comment.body }}
+          issue_number: ${{ github.event.issue.number }}
+          create_branch: true
+          move_to_done: true
+
+      - name: Skip if No PRP Found
+        if: steps.prp.outputs.has_prp == 'false'
+        run: |
+          echo "::warning::No valid PRP found in comment, skipping implementation"
+          exit 0
+
+      - name: Implement PRP with Claude Code
+        if: steps.prp.outputs.has_prp == 'true'
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: /tmp/prp-implementation-prompt.md
+          allowed_tools: ${{ inputs.allowed_tools }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          claude_code_oauth_token: ${{ inputs.api_provider == 'anthropic' && secrets.claude_oauth_token || '' }}
+          anthropic_api_key: ${{ inputs.api_provider == 'moonshot' && secrets.anthropic_auth_token || '' }}
+          model: ${{ inputs.claude_model }}
+        env:
+          ANTHROPIC_BASE_URL: ${{ inputs.anthropic_base_url }}
+
+      - name: Commit Implementation
+        id: commit
+        if: steps.prp.outputs.has_prp == 'true'
+        run: |
+          git add .
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::notice::No changes to commit"
+          else
+            git commit -m "feat: implement PRP ${{ steps.prp.outputs.prp_name }}
+
+          🤖 Automated implementation from issue #${{ github.event.issue.number }}
+          
+          Generated with Claude Code (${{ inputs.api_provider }})
+          
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "::notice::Changes committed successfully"
+          fi
+
+      - name: Push Implementation Branch
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        run: |
+          git push origin "${{ steps.prp.outputs.branch_name }}"
+          echo "::notice::Pushed branch: ${{ steps.prp.outputs.branch_name }}"
+
+      - name: Create Pull Request
+        id: create-pr
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: create-pr
+          pr_title: "feat: implement ${{ steps.prp.outputs.prp_name }}"
+          pr_head: ${{ steps.prp.outputs.branch_name }}
+          pr_base: main
+          pr_body: |
+            ## 🤖 Automated PRP Implementation
+
+            **Implements:** `${{ steps.prp.outputs.prp_path }}`
+            **Triggered by:** Issue #${{ github.event.issue.number }}
+            **API Provider:** ${{ inputs.api_provider }}
+
+            ### Implementation Details
+            - PRP processed and moved to done folder
+            - Implementation branch: `${{ steps.prp.outputs.branch_name }}`
+            - Generated with Claude Code using ${{ inputs.api_provider }} API
+
+            🚀 Generated with [Claude Code](https://claude.ai/code)
+
+            Co-Authored-By: Claude <noreply@anthropic.com>
+          draft_pr: false
+
+      - name: Comment Success on Issue
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            🚀 **PRP Implementation Complete!**
+
+            **Implemented:** `${{ steps.prp.outputs.prp_path }}`
+            **Pull Request:** [#${{ steps.create-pr.outputs.pr_number }}](${{ steps.create-pr.outputs.pr_url }})
+            **Branch:** `${{ steps.prp.outputs.branch_name }}`
+            **API Provider:** ${{ inputs.api_provider }}
+
+            Ready for review! 🎉
+
+      - name: Comment No Changes on Issue
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'false'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            ⚠️ **PRP Implementation Status**
+
+            **Attempted:** `${{ steps.prp.outputs.prp_path }}`
+            **Result:** No changes were generated
+            **API Provider:** ${{ inputs.api_provider }}
+
+            The PRP may already be implemented or need more specific requirements.

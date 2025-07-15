@@ -1,0 +1,237 @@
+name: 'Claude Agent Pipeline'
+
+on:
+  workflow_call:
+    inputs:
+      api_provider:
+        description: 'API provider: anthropic or moonshot'
+        required: false
+        type: string
+        default: 'anthropic'
+      anthropic_base_url:
+        description: 'Base URL for Anthropic API (for Moonshot compatibility)'
+        required: false
+        type: string
+        default: ''
+      timeout_minutes:
+        description: 'Timeout for Claude Code execution'
+        required: false
+        type: number
+        default: 60
+      allowed_tools:
+        description: 'Allowed tools for Claude Code'
+        required: false
+        type: string
+        default: 'Bash(git:*),Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'
+      claude_model:
+        description: 'Claude model to use'
+        required: false
+        type: string
+        default: 'claude-sonnet-4-20250514'
+      bot_username:
+        description: 'Bot username for duplicate check'
+        required: false
+        type: string
+        default: 'Claude Multi-Agent Bot'
+      git_user_name:
+        description: 'Git user name for commits'
+        required: false
+        type: string
+        default: 'Claude Multi-Agent Bot'
+      git_user_email:
+        description: 'Git user email for commits'
+        required: false
+        type: string
+        default: 'claude-agents@users.noreply.github.com'
+      commit_message_prefix:
+        description: 'Prefix for commit messages'
+        required: false
+        type: string
+        default: 'feat: create PRP for issue'
+    secrets:
+      claude_oauth_token:
+        description: 'Claude Code OAuth token'
+        required: false
+      anthropic_auth_token:
+        description: 'Anthropic API token (for Moonshot)'
+        required: false
+      github_token:
+        description: 'GitHub token'
+        required: true
+
+jobs:
+  create-prp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    
+    # Only run for issues and issue comments
+    if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Validate API Configuration
+        run: |
+          if [ "${{ inputs.api_provider }}" = "anthropic" ] && [ -z "${{ secrets.claude_oauth_token }}" ]; then
+            echo "::error::claude_oauth_token is required for Anthropic API"
+            exit 1
+          fi
+          
+          if [ "${{ inputs.api_provider }}" = "moonshot" ] && [ -z "${{ secrets.anthropic_auth_token }}" ]; then
+            echo "::error::anthropic_auth_token is required for Moonshot API"
+            exit 1
+          fi
+          
+          echo "API configuration validated for: ${{ inputs.api_provider }}"
+
+      - name: Setup Claude Environment
+        uses: batumi-works/actions-lib/actions/claude-setup@v1
+        with:
+          claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
+          github_token: ${{ secrets.github_token }}
+          git_user_name: ${{ inputs.git_user_name }}
+          git_user_email: ${{ inputs.git_user_email }}
+          fetch_depth: 0
+
+      - name: Check Bot Status and Prepare Context
+        id: bot-status
+        if: github.event_name == 'issues' || github.event_name == 'issue_comment'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: check-bot-status
+          issue_number: ${{ github.event.issue.number }}
+          bot_username: ${{ inputs.bot_username }}
+
+      - name: Skip if Bot Already Processed
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'false'
+        run: |
+          echo "::notice::Bot has already processed this issue, skipping"
+          exit 0
+
+      - name: Create PRP from Issue
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true'
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: /tmp/dynamic-prompt.md
+          allowed_tools: ${{ inputs.allowed_tools }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          claude_code_oauth_token: ${{ inputs.api_provider == 'anthropic' && secrets.claude_oauth_token || '' }}
+          anthropic_api_key: ${{ inputs.api_provider == 'moonshot' && secrets.anthropic_auth_token || '' }}
+          model: ${{ inputs.claude_model }}
+        env:
+          ANTHROPIC_BASE_URL: ${{ inputs.anthropic_base_url }}
+
+      - name: Create PRP from Schedule/Manual
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          prompt_file: .claude/commands/PRPs/prp-base-create.md
+          allowed_tools: ${{ inputs.allowed_tools }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          claude_code_oauth_token: ${{ inputs.api_provider == 'anthropic' && secrets.claude_oauth_token || '' }}
+          anthropic_api_key: ${{ inputs.api_provider == 'moonshot' && secrets.anthropic_auth_token || '' }}
+          model: ${{ inputs.claude_model }}
+        env:
+          ANTHROPIC_BASE_URL: ${{ inputs.anthropic_base_url }}
+
+      - name: Commit PRP
+        id: commit
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true'
+        run: |
+          git add .
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::notice::No changes to commit"
+          else
+            git commit -m "${{ inputs.commit_message_prefix }} #${{ github.event.issue.number }} - ${{ github.event.issue.title }}"
+            git pull --rebase origin main
+            git push
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "::notice::PRP committed and pushed"
+          fi
+
+      - name: Commit PRP (Schedule/Manual)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git add .
+          if git diff --staged --quiet; then
+            echo "::notice::No changes to commit"
+          else
+            git commit -m "${{ inputs.commit_message_prefix }} - scheduled run"
+            git pull --rebase origin main
+            git push
+            echo "::notice::PRP committed and pushed"
+          fi
+
+      - name: Find Latest PRP
+        id: find-prp
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true' && steps.commit.outputs.has_changes == 'true'
+        run: |
+          # Find the most recently created PRP file
+          if [ -d "PRPs/todo" ]; then
+            latest_prp=$(ls -t PRPs/todo/*.md 2>/dev/null | head -1)
+            if [ -n "$latest_prp" ]; then
+              prp_name=$(basename "$latest_prp")
+              echo "latest_prp=$latest_prp" >> $GITHUB_OUTPUT
+              echo "prp_name=$prp_name" >> $GITHUB_OUTPUT
+              echo "::notice::Found latest PRP: $prp_name"
+            else
+              echo "::warning::No PRP files found in PRPs/todo"
+            fi
+          else
+            echo "::warning::PRPs/todo directory not found"
+          fi
+
+      - name: Comment on Issue with PRP Location
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true' && steps.commit.outputs.has_changes == 'true' && steps.find-prp.outputs.latest_prp != ''
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            🤖 **PRP Created!**
+
+            I've automatically generated a Product Requirement Document for this issue.
+
+            📄 **PRP Location:** [${{ steps.find-prp.outputs.latest_prp }}](https://github.com/${{ github.repository }}/blob/main/${{ steps.find-prp.outputs.latest_prp }})
+            **API Provider:** ${{ inputs.api_provider }}
+
+            ### The PRP includes:
+            - Detailed implementation plan
+            - Context and requirements
+            - Validation steps
+            - Success criteria
+
+            An agent will pick this up and start working on it soon! 🚀
+
+            *Generated with Claude Code using ${{ inputs.api_provider }} API*
+
+      - name: Comment No Changes
+        if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true' && steps.commit.outputs.has_changes == 'false'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          github_token: ${{ secrets.github_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            🤖 **PRP Creation Status**
+
+            Attempted to create a PRP for this issue but no changes were generated.
+            **API Provider:** ${{ inputs.api_provider }}
+
+            This might happen if:
+            - The issue is already well-documented
+            - The requirements are unclear
+            - The issue is not suitable for PRP generation
+
+            You can try rephrasing the issue or adding more details.
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "::notice::Workflow completed successfully"
+          # Clean up temporary files
+          rm -f /tmp/discussion-context.md /tmp/dynamic-prompt.md
