@@ -81,13 +81,13 @@ allowed_tools: "Bash,Glob,Grep,LS,exit_plan_mode,Read,Edit,MultiEdit,Write,Noteb
 Default GitHub Actions permissions are read-only.
 
 **Solution:**
-Add `contents: write` permission to workflow:
+Add proper permissions to workflow:
 
 ```yaml
 permissions:
-  contents: write      # ✅ Required for commits
-  pull-requests: read
-  issues: read
+  contents: write        # ✅ Required for commits
+  pull-requests: write   # ✅ Required for PR comments
+  issues: write          # ✅ Required for issue comments
   id-token: write
   actions: read
 ```
@@ -159,8 +159,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: read
-      issues: read
+      pull-requests: write  # Required for PR comments
+      issues: write         # Required for issue comments
       id-token: write
       actions: read
     steps:

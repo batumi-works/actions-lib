@@ -247,7 +247,15 @@ Solution: Add the required secret to your repository settings.
 ```
 Error: Resource not accessible by integration
 ```
-Solution: Ensure your workflow has the required permissions.
+Solution: Ensure your workflow has the required permissions:
+```yaml
+permissions:
+  contents: write        # For commits
+  pull-requests: write   # For PR comments
+  issues: write          # For issue comments
+  id-token: write
+  actions: read
+```
 
 **3. API Provider Configuration**
 ```
