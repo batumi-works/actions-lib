@@ -1,0 +1,7 @@
+{
+  "name": "Claude Code Review",
+  "description": "Automated code review using Claude Code on pull requests",
+  "iconName": "code-review",
+  "categories": ["code-quality", "ai", "automation"],
+  "filePatterns": ["claude-code-review.yml"]
+}

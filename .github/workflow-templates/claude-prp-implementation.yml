@@ -1,0 +1,19 @@
+name: Claude PRP Implementation
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  implement-prp:
+    if: contains(github.event.comment.body, 'PRPs/') && contains(github.event.comment.body, '.md')
+    uses: batumi-works/actions-lib/.github/workflows/claude-prp-pipeline.yml@v1
+    with:
+      api_provider: "anthropic"
+      timeout_minutes: 90
+      # Optional: Customize git commit user
+      # git_user_name: "Your Bot Name"
+      # git_user_email: "your-bot@example.com"
+    secrets:
+      claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      github_token: ${{ secrets.GITHUB_TOKEN }}

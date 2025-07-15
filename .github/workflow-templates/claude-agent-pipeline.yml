@@ -1,0 +1,23 @@
+name: Claude Agent Pipeline
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes
+  workflow_dispatch:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  create-prp:
+    uses: batumi-works/actions-lib/.github/workflows/claude-agent-pipeline.yml@v1
+    with:
+      api_provider: "anthropic"
+      timeout_minutes: 60
+      bot_username: "Claude Multi-Agent Bot"
+      # Optional: Customize commit message
+      # commit_message_prefix: "feat: create PRP for issue"
+    secrets:
+      claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      github_token: ${{ secrets.GITHUB_TOKEN }}

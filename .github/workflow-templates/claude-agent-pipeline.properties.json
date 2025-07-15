@@ -1,0 +1,7 @@
+{
+  "name": "Claude Agent Pipeline",
+  "description": "Creates PRPs from GitHub issues and comments using Claude Code",
+  "iconName": "workflow",
+  "categories": ["automation", "ai", "productivity"],
+  "filePatterns": ["claude-agent-pipeline.yml"]
+}

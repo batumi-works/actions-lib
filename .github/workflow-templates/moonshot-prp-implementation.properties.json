@@ -1,0 +1,7 @@
+{
+  "name": "Moonshot PRP Implementation",
+  "description": "Implements PRPs from GitHub issue comments using Moonshot API",
+  "iconName": "rocket",
+  "categories": ["automation", "ai", "productivity"],
+  "filePatterns": ["moonshot-prp-implementation.yml"]
+}

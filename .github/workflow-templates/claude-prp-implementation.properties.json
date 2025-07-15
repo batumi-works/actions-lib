@@ -1,0 +1,7 @@
+{
+  "name": "Claude PRP Implementation",
+  "description": "Implements PRPs from GitHub issue comments using Claude Code",
+  "iconName": "package",
+  "categories": ["automation", "ai", "productivity"],
+  "filePatterns": ["claude-prp-implementation.yml"]
+}
