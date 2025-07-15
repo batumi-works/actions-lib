@@ -55,7 +55,11 @@ on:
       anthropic_auth_token:
         description: 'Anthropic API token (for Moonshot)'
         required: false
+<<<<<<< HEAD
       bot_token:
+=======
+      github_token:
+>>>>>>> 4a876f0 (docs: update workflow secret descriptions for clarity)
         description: 'GitHub token for API operations'
         required: true
 
