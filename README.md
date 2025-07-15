@@ -119,7 +119,7 @@ Implements PRPs from GitHub issue comments. Consolidates functionality from mult
 - `api_provider` (default: 'anthropic'): API provider to use
 - `anthropic_base_url`: Base URL for Anthropic API (for Moonshot)
 - `timeout_minutes` (default: 90): Timeout for Claude Code execution
-- `allowed_tools`: Allowed tools for Claude Code
+- `allowed_tools` (default: 'Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'): Allowed tools for Claude Code (**Note**: Do not use wildcards like `Bash(git:*)` as they break parsing)
 - `claude_model` (default: 'claude-sonnet-4-20250514'): Claude model to use
 - `skip_pr_check` (default: false): Skip PR reference check
 - `git_user_name`: Git user name for commits
@@ -137,7 +137,7 @@ Creates PRPs from GitHub issues and comments. Supports scheduled runs and manual
 - `api_provider` (default: 'anthropic'): API provider to use
 - `anthropic_base_url`: Base URL for Anthropic API (for Moonshot)
 - `timeout_minutes` (default: 60): Timeout for Claude Code execution
-- `allowed_tools`: Allowed tools for Claude Code
+- `allowed_tools` (default: 'Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'): Allowed tools for Claude Code (**Note**: Do not use wildcards like `Bash(git:*)` as they break parsing)
 - `claude_model` (default: 'claude-sonnet-4-20250514'): Claude model to use
 - `bot_username` (default: 'Claude Multi-Agent Bot'): Bot username for duplicate check
 - `git_user_name`: Git user name for commits
@@ -254,6 +254,31 @@ Solution: Ensure your workflow has the required permissions.
 Error: anthropic_auth_token is required for Moonshot API
 ```
 Solution: Configure the correct API provider and corresponding secret.
+
+**4. Bash Permissions Not Granted** ⚠️ **Critical**
+```
+Error: permissions not granted for bash commands
+```
+Solution: Do not use wildcards in `allowed_tools`. Use simple tool names:
+```yaml
+# ❌ INCORRECT - breaks parsing
+allowed_tools: "Bash(git:*),Read,Write"
+
+# ✅ CORRECT - use simple tool names
+allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite"
+```
+
+**5. Git Submodule Exit Code 128**
+```
+Error: fatal: No url found for submodule path 'claude-sessions' in .gitmodules
+```
+Solution: Remove orphaned submodule references:
+```bash
+git rm --cached claude-sessions
+rm -rf claude-sessions
+git add -A
+git commit -m "fix: remove orphaned claude-sessions submodule reference"
+```
 
 ### Debug Mode
 Enable debug logging by setting `ACTIONS_STEP_DEBUG=true` in your repository secrets.

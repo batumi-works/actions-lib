@@ -22,7 +22,7 @@ on:
         description: 'Allowed tools for Claude Code'
         required: false
         type: string
-        default: 'Bash(git:*),Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'
+        default: 'Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'
       claude_model:
         description: 'Claude model to use'
         required: false
