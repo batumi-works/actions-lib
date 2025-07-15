@@ -255,7 +255,27 @@ Error: anthropic_auth_token is required for Moonshot API
 ```
 Solution: Configure the correct API provider and corresponding secret.
 
-**4. Bash Permissions Not Granted** ⚠️ **Critical**
+**4. Claude Code Authentication Error** ⚠️ **Critical**
+```
+Error: User does not have write access
+```
+Solution: Add `github_token` parameter to force OAuth token usage:
+```yaml
+# ❌ INCORRECT - may fail with auth error
+- name: Run Claude Code
+  uses: anthropics/claude-code-action@beta
+  with:
+    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+# ✅ CORRECT - includes github_token parameter
+- name: Run Claude Code
+  uses: anthropics/claude-code-action@beta
+  with:
+    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+**5. Bash Permissions Not Granted** ⚠️ **Critical**
 ```
 Error: permissions not granted for bash commands
 ```
@@ -268,7 +288,7 @@ allowed_tools: "Bash(git:*),Read,Write"
 allowed_tools: "Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite"
 ```
 
-**5. Git Submodule Exit Code 128**
+**6. Git Submodule Exit Code 128**
 ```
 Error: fatal: No url found for submodule path 'claude-sessions' in .gitmodules
 ```

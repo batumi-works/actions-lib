@@ -92,7 +92,35 @@ permissions:
   actions: read
 ```
 
-### 4. Detached HEAD State in PR Context
+### 4. Claude Code Authentication Error (OIDC Token Exchange)
+
+**Problem:**
+- Claude Code Action fails with "User does not have write access" error
+- Occurs when using `claude-code-action@beta` without `github_token` parameter
+- Authentication fails due to OIDC token exchange issues
+
+**Root Cause:**
+Claude Code Action tries to use OIDC token exchange by default, which may not have sufficient permissions.
+
+**Solution:**
+Add `github_token` parameter to force use of OAuth token:
+
+```yaml
+# ❌ INCORRECT - may fail with auth error
+- name: Run Claude Code
+  uses: anthropics/claude-code-action@beta
+  with:
+    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+# ✅ CORRECT - includes github_token parameter
+- name: Run Claude Code
+  uses: anthropics/claude-code-action@beta
+  with:
+    claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### 5. Detached HEAD State in PR Context
 
 **Problem:**
 - GitHub Actions checks out PRs in detached HEAD state
@@ -146,6 +174,7 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           
           # Allow all necessary tools - NO WILDCARDS
           allowed_tools: "Bash,Glob,Grep,LS,exit_plan_mode,Read,Edit,MultiEdit,Write,NotebookRead,NotebookEdit,WebFetch,TodoWrite,WebSearch,Task"
