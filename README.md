@@ -300,12 +300,21 @@ Enable debug logging by setting `ACTIONS_STEP_DEBUG=true` in your repository sec
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 📚 Additional Resources
+
+- [Migration Guide](./docs/MIGRATION_GUIDE.md) - Comprehensive guide for migrating from individual workflows
+- [Claude Code Action Troubleshooting](./docs/claude-code-action-troubleshooting.md) - Detailed troubleshooting for Claude Code Action issues
+- [Workflow Templates](./.github/workflow-templates/) - Pre-configured templates for new repositories
+- [Dependabot Example](./docs/dependabot-example.yml) - Example Dependabot configuration
+- [GitHub Actions Documentation](https://docs.github.com/en/actions) - Official GitHub Actions documentation
+
 ## 🆘 Support
 
 For issues and questions:
 1. Check the [troubleshooting section](#troubleshooting)
-2. Search existing GitHub issues
-3. Create a new issue with detailed information
+2. Review the [detailed troubleshooting guide](./docs/claude-code-action-troubleshooting.md)
+3. Search existing GitHub issues
+4. Create a new issue with detailed information
 
 ---
 

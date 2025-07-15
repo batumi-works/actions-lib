@@ -184,6 +184,7 @@ env:
 ## 📚 Additional Resources
 
 - [Actions Library README](../README.md)
+- [Claude Code Action Troubleshooting](./claude-code-action-troubleshooting.md)
 - [Workflow Templates](../.github/workflow-templates/)
 - [Dependabot Example](./dependabot-example.yml)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
