@@ -50,8 +50,8 @@ on:
       anthropic_auth_token:
         description: 'Anthropic API token (for Moonshot)'
         required: false
-      github_token:
-        description: 'GitHub token'
+      bot_token:
+        description: 'GitHub token for API operations'
         required: true
 
 jobs:
@@ -84,7 +84,7 @@ jobs:
         uses: batumi-works/actions-lib/actions/claude-setup@v1
         with:
           claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ secrets.bot_token }}
           git_user_name: ${{ inputs.git_user_name }}
           git_user_email: ${{ inputs.git_user_email }}
           fetch_depth: 0
@@ -148,7 +148,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ secrets.bot_token }}
           operation: create-pr
           pr_title: "feat: implement ${{ steps.prp.outputs.prp_name }}"
           pr_head: ${{ steps.prp.outputs.branch_name }}
@@ -174,7 +174,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |
@@ -191,7 +191,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'false'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |
