@@ -8,6 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$PROJECT_DIR/docker-compose.test.yml"
 VERBOSE=false
+LOG_FILE="$PROJECT_DIR/docker-test.log"
+
+# Source error handling utilities
+if [[ -f "$SCRIPT_DIR/error-handler.sh" ]]; then
+    source "$SCRIPT_DIR/error-handler.sh"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -95,17 +101,26 @@ check_prerequisites() {
     
     local errors=0
     
-    # Check Docker
-    if ! command -v docker &> /dev/null; then
-        log_error "Docker is not installed or not in PATH"
+    # Check Docker with enhanced error handling
+    if ! check_command "docker" "DOCKER_NOT_FOUND"; then
         ((errors++))
     else
         log_info "Docker: $(docker --version)"
+        
+        # Check Docker daemon
+        if ! docker info &> /dev/null; then
+            handle_error "${ERROR_CODES[DOCKER_NOT_RUNNING]}" \
+                "Docker daemon is not running" \
+                "DOCKER_NOT_RUNNING"
+            ((errors++))
+        fi
     fi
     
     # Check Docker Compose
     if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        log_error "Docker Compose is not installed or not in PATH"
+        handle_error "${ERROR_CODES[COMPOSE_NOT_FOUND]}" \
+            "Docker Compose is not installed or not in PATH" \
+            "COMPOSE_NOT_FOUND"
         ((errors++))
     else
         if command -v docker-compose &> /dev/null; then
@@ -115,22 +130,13 @@ check_prerequisites() {
         fi
     fi
     
-    # Check Docker daemon
-    if ! docker info &> /dev/null; then
-        log_error "Docker daemon is not running"
-        ((errors++))
-    fi
-    
-    # Check disk space
-    local available_space=$(df "$PROJECT_DIR" | awk 'NR==2 {print $4}')
-    local required_space=2000000  # 2GB in KB
-    
-    if [ "$available_space" -lt "$required_space" ]; then
-        log_warning "Low disk space: $(($available_space / 1024))MB available, 2GB recommended"
+    # Check disk space with enhanced error handling
+    if ! check_disk_space 2000 "$PROJECT_DIR"; then
+        log_warning "Continuing with low disk space warning"
     fi
     
     if [ $errors -gt 0 ]; then
-        log_error "Prerequisites check failed. Please install missing dependencies."
+        log_error "Prerequisites check failed. See suggestions above."
         exit 1
     fi
     
@@ -160,18 +166,28 @@ build_container() {
     # Use BuildKit for faster builds
     export DOCKER_BUILDKIT=1
     
+    # Build with retry on network errors
+    local build_cmd="docker build $no_cache -f Dockerfile.test -t actions-test ."
+    
     if [[ "$VERBOSE" == "true" ]]; then
-        docker build $no_cache -f Dockerfile.test -t actions-test .
+        if ! retry_with_backoff 3 2 "$build_cmd"; then
+            handle_error "${ERROR_CODES[BUILD_FAILED]}" \
+                "Container build failed after retries" \
+                "BUILD_FAILED"
+            exit 1
+        fi
     else
-        docker build $no_cache -f Dockerfile.test -t actions-test . > /dev/null 2>&1
+        if ! retry_with_backoff 3 2 "$build_cmd > $LOG_FILE 2>&1"; then
+            handle_error "${ERROR_CODES[BUILD_FAILED]}" \
+                "Container build failed. Check $LOG_FILE for details" \
+                "BUILD_FAILED"
+            echo "Last 50 lines of build log:" >&2
+            tail -n 50 "$LOG_FILE" >&2
+            exit 1
+        fi
     fi
     
-    if [[ $? -eq 0 ]]; then
-        log_success "Container built successfully"
-    else
-        log_error "Container build failed"
-        exit 1
-    fi
+    log_success "Container built successfully"
 }
 
 # Run tests
