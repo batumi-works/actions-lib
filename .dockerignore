@@ -66,8 +66,8 @@ Dockerfile*
 docker-compose*.yml
 .dockerignore
 
-# CI/CD
-.github/workflows/
+# CI/CD artifacts only (keep workflows)
+.github/workflows/*.log
 
 # Documentation build
 docs/_build/
