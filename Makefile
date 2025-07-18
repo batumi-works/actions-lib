@@ -2,6 +2,9 @@
 
 .PHONY: help test test-unit test-integration test-e2e test-coverage setup-test-env clean-test-env install-deps docker-build docker-test docker-unit docker-integration docker-security docker-performance docker-shell docker-clean docker-logs docker-status
 
+# Configuration
+TEST_TMPDIR ?= $(shell mktemp -d 2>/dev/null || echo "/tmp")/bats-actions-test
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -50,15 +53,28 @@ install-deps:
 	}
 	@which act >/dev/null 2>&1 || { \
 		echo "Installing act CLI..."; \
-		curl -L https://github.com/nektos/act/releases/latest/download/act_Linux_x86_64.tar.gz | tar -xz; \
-		sudo mv act /usr/local/bin/ 2>/dev/null || mv act ~/bin/; \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		if [ "$$ARCH" = "x86_64" ]; then ARCH="x86_64"; \
+		elif [ "$$ARCH" = "aarch64" ] || [ "$$ARCH" = "arm64" ]; then ARCH="arm64"; \
+		else echo "Unsupported architecture: $$ARCH"; exit 1; fi; \
+		if [ "$$OS" = "darwin" ]; then OS="Darwin"; \
+		elif [ "$$OS" = "linux" ]; then OS="Linux"; \
+		else echo "Unsupported OS: $$OS"; exit 1; fi; \
+		URL="https://github.com/nektos/act/releases/latest/download/act_$${OS}_$${ARCH}.tar.gz"; \
+		echo "Downloading act from: $$URL"; \
+		curl -L "$$URL" | tar -xz; \
+		sudo mv act /usr/local/bin/ 2>/dev/null || { \
+			mkdir -p ~/bin && mv act ~/bin/ && \
+			echo "Installed act to ~/bin. Please ensure ~/bin is in your PATH."; \
+		}; \
 	}
 	@echo "Dependencies installed successfully"
 
 # Set up test environment
 setup-test-env:
 	@echo "Setting up test environment..."
-	@mkdir -p /tmp/bats-actions-test
+	@mkdir -p "$(TEST_TMPDIR)"
 	@mkdir -p $(TEST_DIR)/fixtures/sample_prp_files
 	@mkdir -p $(TEST_DIR)/fixtures/mock_github_responses
 	@mkdir -p $(TEST_DIR)/fixtures/test_repositories
@@ -67,7 +83,7 @@ setup-test-env:
 # Clean up test environment
 clean-test-env:
 	@echo "Cleaning up test environment..."
-	@rm -rf /tmp/bats-actions-test
+	@rm -rf "$(TEST_TMPDIR)"
 	@echo "Test environment cleaned"
 
 # Run all tests
@@ -133,59 +149,73 @@ test-report: setup-test-env
 	@mkdir -p reports
 	@cd $(TEST_DIR) && bats --recursive --formatter tap . > ../reports/test-results.tap
 	@cd $(TEST_DIR) && bats --recursive --formatter pretty . > ../reports/test-results.txt
-	@echo "Test report generated in reports/"
+	@./scripts/format-test-results.sh --format all
+	@echo "Test reports generated in reports/ (Markdown, HTML, JUnit XML)"
 	@$(MAKE) clean-test-env
 
 # Docker testing targets
 docker-build:
 	@echo "Building Docker test container..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh build
 
 docker-test:
 	@echo "Running all tests in Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh test
 
 docker-unit:
 	@echo "Running unit tests in Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh unit
 
 docker-integration:
 	@echo "Running integration tests in Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh integration
 
 docker-security:
 	@echo "Running security scans in Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh security
 
 docker-performance:
 	@echo "Running performance tests in Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh performance
 
 docker-shell:
 	@echo "Starting interactive Docker shell..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh shell
 
 docker-clean:
 	@echo "Cleaning up Docker containers and volumes..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh clean
 
 docker-logs:
 	@echo "Showing Docker container logs..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh logs
 
 docker-status:
 	@echo "Showing Docker container status..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh status
 
 # Docker convenience targets
 docker-parallel:
 	@echo "Running tests in parallel with Docker..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh test --parallel
 
 docker-validate:
 	@echo "Validating Docker setup..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh validate
 
 docker-rebuild:
 	@echo "Rebuilding Docker container..."
+	@test -f scripts/docker-test.sh || { echo "Error: scripts/docker-test.sh not found"; exit 1; }
 	@./scripts/docker-test.sh build --no-cache
