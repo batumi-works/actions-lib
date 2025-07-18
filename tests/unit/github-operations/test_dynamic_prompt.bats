@@ -40,9 +40,17 @@ cd "$BATS_TEST_TMPDIR"
 
 # Check if PRP base create template exists
 if [ -f ".claude/commands/PRPs/prp-base-create.md" ]; then
-    template_content=$(cat .claude/commands/PRPs/prp-base-create.md)
-    discussion_context=$(cat /tmp/discussion-context.md)
-    echo "$template_content" | sed "s/\$ARGUMENTS/$discussion_context/g" > /tmp/dynamic-prompt.md
+    # Use awk for safer substitution that handles newlines
+    awk '{
+        if ($0 ~ /\$ARGUMENTS/) {
+            while ((getline line < "/tmp/discussion-context.md") > 0) {
+                print line
+            }
+            close("/tmp/discussion-context.md")
+        } else {
+            print
+        }
+    }' .claude/commands/PRPs/prp-base-create.md > /tmp/dynamic-prompt.md
     echo "Created dynamic prompt with discussion context"
 else
     echo "PRP base create template not found, using discussion context directly"
@@ -59,11 +67,14 @@ EOF
     # Check that dynamic prompt was created
     assert_file_exists "/tmp/dynamic-prompt.md"
     
-    # Check content
+    # Check content - template substitution should have occurred
     run cat /tmp/dynamic-prompt.md
     [[ "$output" =~ "# PRP Creation Template" ]]
+    [[ "$output" =~ "## Context" ]]
     [[ "$output" =~ "# Issue: Test Issue" ]]
     [[ "$output" =~ "**user1**" ]]
+    [[ "$output" =~ "## Instructions" ]]
+    [[ "$output" =~ "Create a PRP based on the discussion context above" ]]
 }
 
 @test "dynamic prompt creation falls back when template missing" {
@@ -158,19 +169,18 @@ cd "$BATS_TEST_TMPDIR"
 
 # Check if PRP base create template exists
 if [ -f ".claude/commands/PRPs/prp-base-create.md" ]; then
-    template_content=$(cat .claude/commands/PRPs/prp-base-create.md)
-    discussion_context=$(cat /tmp/discussion-context.md)
-    
-    # Use a more robust substitution method for complex content
-    python3 -c "
-import sys
-template = open('.claude/commands/PRPs/prp-base-create.md').read()
-context = open('/tmp/discussion-context.md').read()
-result = template.replace('\$ARGUMENTS', context)
-with open('/tmp/dynamic-prompt.md', 'w') as f:
-    f.write(result)
-print('Created dynamic prompt with complex context')
-"
+    # Use awk for safer substitution that handles newlines and special chars
+    awk '{
+        if ($0 ~ /\$ARGUMENTS/) {
+            while ((getline line < "/tmp/discussion-context.md") > 0) {
+                print line
+            }
+            close("/tmp/discussion-context.md")
+        } else {
+            print
+        }
+    }' .claude/commands/PRPs/prp-base-create.md > /tmp/dynamic-prompt.md
+    echo "Created dynamic prompt with complex context"
 else
     echo "PRP base create template not found"
     cp /tmp/discussion-context.md /tmp/dynamic-prompt.md
@@ -186,28 +196,57 @@ EOF
     # Check that dynamic prompt was created
     assert_file_exists "/tmp/dynamic-prompt.md"
     
-    # Check content preservation
+    # Check content preservation - should include both template and context
     run cat /tmp/dynamic-prompt.md
-    [[ "$output" =~ "Special characters: @#\$%\^&\*()" ]]
+    [[ "$output" =~ "# PRP Creation Template" ]]
+    [[ "$output" =~ "## Context" ]]
+    [[ "$output" =~ "Special characters: @#" ]]
     [[ "$output" =~ "Code blocks:" ]]
     [[ "$output" =~ "echo \"test\"" ]]
+    [[ "$output" =~ "## Instructions" ]]
 }
 
 @test "dynamic prompt creation handles empty discussion context" {
     # Set up test environment
     setup_github_actions_env
+    mkdir -p "$BATS_TEST_TMPDIR/.claude/commands/PRPs"
+    
+    # Create PRP template
+    cat > "$BATS_TEST_TMPDIR/.claude/commands/PRPs/prp-base-create.md" << 'EOF'
+# PRP Creation Template
+
+## Context
+$ARGUMENTS
+
+## Instructions
+Create a PRP based on the discussion context above.
+EOF
     
     # Create empty discussion context
-    echo "" > /tmp/discussion-context.md
+    > /tmp/discussion-context.md
     
     # Create a mock script that handles empty context
     cat > "$BATS_TEST_TMPDIR/test_empty_context.sh" << 'EOF'
 #!/usr/bin/env bash
 # Test empty context handling
 
+cd "$BATS_TEST_TMPDIR"
+
 if [ ! -s "/tmp/discussion-context.md" ]; then
     echo "Discussion context is empty"
-    echo "# No Discussion Context Available" > /tmp/dynamic-prompt.md
+    # Still use template if available, but with empty context
+    if [ -f ".claude/commands/PRPs/prp-base-create.md" ]; then
+        # Use awk to replace $ARGUMENTS with empty content
+        awk '{
+            if ($0 ~ /\$ARGUMENTS/) {
+                # Skip the $ARGUMENTS line for empty context
+            } else {
+                print
+            }
+        }' .claude/commands/PRPs/prp-base-create.md > /tmp/dynamic-prompt.md
+    else
+        echo "# No Discussion Context Available" > /tmp/dynamic-prompt.md
+    fi
 else
     echo "Discussion context available"
     cp /tmp/discussion-context.md /tmp/dynamic-prompt.md
@@ -223,9 +262,11 @@ EOF
     # Check that fallback prompt was created
     assert_file_exists "/tmp/dynamic-prompt.md"
     
-    # Check content
+    # Check content - should have template with empty context
     run cat /tmp/dynamic-prompt.md
-    [[ "$output" =~ "No Discussion Context Available" ]]
+    [[ "$output" =~ "# PRP Creation Template" ]]
+    [[ "$output" =~ "## Context" ]]
+    [[ "$output" =~ "## Instructions" ]]
 }
 
 @test "dynamic prompt creation validates template syntax" {

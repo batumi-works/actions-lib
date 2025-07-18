@@ -129,6 +129,9 @@ EOF
     # Copy our actions
     cp -r "$BATS_TEST_DIRNAME/../../actions" "$BATS_TEST_TMPDIR/test_act/"
     
+    # Copy .actrc configuration
+    cp "$BATS_TEST_DIRNAME/../../.actrc" "$BATS_TEST_TMPDIR/test_act/"
+    
     # Create .secrets file for act
     cat > "$BATS_TEST_TMPDIR/test_act/.secrets" << 'EOF'
 GITHUB_TOKEN=test-github-token

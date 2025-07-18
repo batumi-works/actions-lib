@@ -1,6 +1,6 @@
 # Makefile for GitHub Actions Library Testing
 
-.PHONY: help test test-unit test-integration test-e2e test-coverage setup-test-env clean-test-env install-deps docker-build docker-test docker-unit docker-integration docker-security docker-performance docker-shell docker-clean docker-logs docker-status
+.PHONY: help test test-unit test-integration test-e2e test-coverage test-cached test-cache-clear setup-test-env clean-test-env install-deps docker-build docker-test docker-unit docker-integration docker-security docker-performance docker-shell docker-clean docker-logs docker-status
 
 # Configuration
 TEST_TMPDIR ?= $(shell mktemp -d 2>/dev/null || echo "/tmp")/bats-actions-test
@@ -15,6 +15,8 @@ help:
 	@echo "  test-integration  - Run integration tests only"
 	@echo "  test-e2e          - Run end-to-end tests only"
 	@echo "  test-coverage     - Run tests with coverage"
+	@echo "  test-cached       - Run tests with caching (faster)"
+	@echo "  test-cache-clear  - Clear test cache"
 	@echo "  setup-test-env    - Set up test environment"
 	@echo "  clean-test-env    - Clean up test environment"
 	@echo "  install-deps      - Install test dependencies"
@@ -116,6 +118,17 @@ test-coverage: setup-test-env
 	@echo "Note: Coverage reporting for shell scripts requires additional setup"
 	@cd $(TEST_DIR) && bats --recursive --tap .
 	@$(MAKE) clean-test-env
+
+# Run tests with caching for faster execution
+test-cached: setup-test-env
+	@echo "Running tests with caching..."
+	@./scripts/cached-test-runner.sh $(TEST_DIR)
+	@$(MAKE) clean-test-env
+
+# Clear test cache
+test-cache-clear:
+	@echo "Clearing test cache..."
+	@./scripts/test-cache-manager.sh clear all
 
 # Validate test files syntax
 validate-tests:

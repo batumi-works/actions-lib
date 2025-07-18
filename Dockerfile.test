@@ -1,6 +1,9 @@
 # Dockerfile for running GitHub Actions tests in a container
 FROM ubuntu:22.04
 
+# Add project label for easier cleanup
+LABEL project="actions-lib"
+
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV BATS_LIB_PATH=/usr/lib/bats

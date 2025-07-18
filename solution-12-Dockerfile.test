@@ -1,0 +1,139 @@
+# Dockerfile for running GitHub Actions tests in a container
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BATS_LIB_PATH=/usr/lib/bats
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Create test user
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Update package lists and install essential packages
+# This layer changes infrequently
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install core system dependencies
+# Split for better caching - these change rarely
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    make \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install development tools
+# These might change more frequently
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    jq \
+    sed \
+    grep \
+    findutils \
+    time \
+    netcat \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install testing tools
+# BATS and shellcheck are core testing dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bats \
+    shellcheck \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python and pip
+# Separate layer for Python ecosystem
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-setuptools \
+    python3-wheel \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ruby
+# Separate layer for Ruby ecosystem
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ruby \
+    ruby-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI
+# This is a larger component, benefit from separate caching
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+# This requires adding a repository first
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ruby gems
+# Gems change more frequently than system packages
+RUN gem install bashcov simplecov
+
+# Install act CLI
+# External tool installation in separate layer
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then ARCH="x86_64"; fi && \
+    if [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi && \
+    curl -L "https://github.com/nektos/act/releases/latest/download/act_Linux_${ARCH}.tar.gz" | tar -xz \
+    && mv act /usr/local/bin/ \
+    && chmod +x /usr/local/bin/act
+
+# Install Python packages
+# These change frequently, so they're near the end
+RUN pip3 install --no-cache-dir \
+    pyyaml \
+    jinja2
+
+# Create workspace directory structure
+RUN mkdir -p /workspace/{.test-cache,reports,artifacts} \
+    && chown -R testuser:testuser /workspace
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy project files
+# This layer will change most frequently
+COPY --chown=testuser:testuser . .
+
+# Make scripts executable
+RUN find . -name "*.sh" -exec chmod +x {} \; \
+    && find . -name "*.bats" -exec chmod +r {} \;
+
+# Create test configuration
+RUN echo '# Test configuration' > /workspace/.test-config \
+    && echo 'export BATS_TEST_TIMEOUT=300' >> /workspace/.test-config \
+    && echo 'export TEST_PARALLEL=true' >> /workspace/.test-config \
+    && chown testuser:testuser /workspace/.test-config
+
+# Switch to test user
+USER testuser
+
+# Verification layer - quick checks that can be cached
+RUN bats --version && \
+    act --version && \
+    shellcheck --version && \
+    python3 --version && \
+    git --version && \
+    gh --version
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD bats --version || exit 1
+
+# Default command
+CMD ["make", "test"]
+
+# Labels
+LABEL maintainer="GitHub Actions Test Suite"
+LABEL version="1.0.0"
+LABEL description="Container for running comprehensive GitHub Actions tests"

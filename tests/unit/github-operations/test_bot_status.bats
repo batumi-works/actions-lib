@@ -38,6 +38,9 @@ EOF
     [[ "$output" =~ "Last comment was from bot" ]]
     assert_github_output_contains "should_process" "false"
     
+    # Clear GitHub output for next test
+    echo "" > "$GITHUB_OUTPUT"
+    
     # Test when last comment is from different user
     run "$BATS_TEST_TMPDIR/test_bot_status.sh" "123" "Claude AI Bot" "other-user"
     [ "$status" -eq 0 ]
@@ -76,6 +79,9 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" =~ "No comments found, bot should process" ]]
     assert_github_output_contains "should_process" "true"
+    
+    # Clear GitHub output for next test
+    echo "" > "$GITHUB_OUTPUT"
     
     # Test with existing comments
     run "$BATS_TEST_TMPDIR/test_empty_comments.sh" "5"
@@ -217,10 +223,16 @@ EOF
     [ "$status" -eq 0 ]
     assert_github_output_contains "should_process" "false"
     
+    # Clear GitHub output for next test
+    echo "" > "$GITHUB_OUTPUT"
+    
     # Test with custom bot username
     run "$BATS_TEST_TMPDIR/test_bot_usernames.sh" "Custom Bot" "Custom Bot"
     [ "$status" -eq 0 ]
     assert_github_output_contains "should_process" "false"
+    
+    # Clear GitHub output for next test
+    echo "" > "$GITHUB_OUTPUT"
     
     # Test with different user
     run "$BATS_TEST_TMPDIR/test_bot_usernames.sh" "Claude AI Bot" "human-user"

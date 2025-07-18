@@ -227,17 +227,19 @@ EOF
     setup_github_actions_env
     
     # Create a mock git that simulates existing branches
-    cat > "$BATS_TEST_TMPDIR/mock_git" << 'EOF'
+    cat > "$BATS_TEST_TMPDIR/git" << 'EOF'
 #!/usr/bin/env bash
 echo "git called with: $*" >> "$BATS_TEST_TMPDIR/mock_git_calls"
 
 case "$1" in
     "checkout")
-        if [[ "$3" == "implement/existing-branch" ]]; then
-            echo "fatal: A branch named 'implement/existing-branch' already exists."
-            exit 1
-        else
-            echo "Switched to a new branch '$3'"
+        if [[ "$2" == "-b" ]]; then
+            if [[ "$3" == "implement/existing-branch" ]]; then
+                echo "fatal: A branch named 'implement/existing-branch' already exists."
+                exit 1
+            else
+                echo "Switched to a new branch '$3'"
+            fi
         fi
         ;;
     "branch")
@@ -248,7 +250,7 @@ case "$1" in
         ;;
 esac
 EOF
-    chmod +x "$BATS_TEST_TMPDIR/mock_git"
+    chmod +x "$BATS_TEST_TMPDIR/git"
     export PATH="$BATS_TEST_TMPDIR:$PATH"
     
     # Create the test script
@@ -264,7 +266,7 @@ if [[ "$HAS_PRP" == "true" && "$CREATE_BRANCH" == "true" ]]; then
     if git checkout -b "$BRANCH_NAME" 2>/dev/null; then
         echo "Created branch: $BRANCH_NAME"
     else
-        echo "Branch already exists or creation failed: $BRANCH_NAME"
+        echo "Branch already exists: $BRANCH_NAME"
         # Could implement fallback with different name
         timestamp=$(date +%s)
         fallback_branch="${BRANCH_NAME}-${timestamp}"

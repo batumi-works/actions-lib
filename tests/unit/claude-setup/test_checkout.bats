@@ -29,6 +29,7 @@ load "../../bats-setup"
     # Set up GitHub output file
     export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
     export GITHUB_WORKSPACE="$BATS_TEST_TMPDIR/workspace"
+    export GITHUB_ACTIONS="true"
     mkdir -p "$GITHUB_WORKSPACE"
     
     # Test output generation
