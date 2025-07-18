@@ -397,4 +397,8 @@ For issues and questions:
 
 ---
 
-**Generated with Claude Code** 🤖# Test update to force cache refresh
+**Generated with Claude Code** 🤖## Documentation
+
+### Troubleshooting Guides
+- [GitHub Actions Reusable Workflows Troubleshooting](docs/GITHUB_ACTIONS_REUSABLE_WORKFLOWS_TROUBLESHOOTING.md) - Common issues and solutions for reusable workflows
+- [Claude Code Action Troubleshooting](docs/claude-code-action-troubleshooting.md) - Specific issues with Claude Code GitHub Action
