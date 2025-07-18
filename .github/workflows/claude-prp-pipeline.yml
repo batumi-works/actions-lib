@@ -63,7 +63,7 @@ jobs:
       pull-requests: write
     
     # Skip if comment references a PR (unless explicitly disabled)
-    if: ${{ inputs.skip_pr_check || !contains(github.event.comment.body, 'PR #') }}
+    if: "${{ inputs.skip_pr_check || !contains(github.event.comment.body, 'PR #') }}"
     
     steps:
       - name: Validate API Configuration
