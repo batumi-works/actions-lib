@@ -233,6 +233,57 @@ updates:
       - dependency-name: "batumi-works/actions-lib"
 ```
 
+## 🧪 Testing
+
+This library includes a comprehensive test suite to ensure reliability and quality.
+
+### Quick Testing
+
+#### Docker Testing (Recommended)
+```bash
+# Validate setup and run all tests
+./scripts/docker-test.sh validate
+./scripts/docker-test.sh test
+
+# Run specific test types
+./scripts/docker-test.sh unit          # Unit tests only
+./scripts/docker-test.sh integration   # Integration tests only
+./scripts/docker-test.sh security      # Security scans only
+
+# Interactive development
+./scripts/docker-test.sh shell
+```
+
+#### Native Testing
+```bash
+# Install dependencies and run tests
+./scripts/setup-test-env.sh
+make test
+
+# Run specific test types
+make test-unit         # Unit tests only
+make test-integration  # Integration tests only
+make test-e2e         # End-to-end tests only
+```
+
+### Test Architecture
+
+- **Unit Tests (70%)**: Test individual components in isolation
+- **Integration Tests (20%)**: Test complete composite actions
+- **E2E Tests (10%)**: Test real workflows with GitHub API
+- **Security Tests**: Static analysis and vulnerability scanning
+- **Performance Tests**: Benchmarking and optimization
+
+### Continuous Integration
+
+Tests automatically run on:
+- Every push to main/develop
+- Pull requests
+- Daily scheduled runs
+- Manual workflow dispatch
+
+See [Testing Guide](./docs/TESTING_GUIDE.md) and [Docker Testing Guide](./docs/DOCKER_TESTING.md) for detailed documentation.
+
 ## 🐛 Troubleshooting
 
 ### Common Issues

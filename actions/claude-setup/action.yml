@@ -43,20 +43,15 @@ runs:
       if: inputs.configure_git == 'true'
       shell: bash
       run: |
-        git config --global user.name "${{ inputs.git_user_name }}"
-        git config --global user.email "${{ inputs.git_user_email }}"
+        ${{ github.action_path }}/scripts/configure_git.sh "${{ inputs.git_user_name }}" "${{ inputs.git_user_email }}" "${{ inputs.configure_git }}"
 
     - name: Validate Claude OAuth Token
       shell: bash
       run: |
-        if [ -z "${{ inputs.claude_oauth_token }}" ]; then
-          echo "::error::Claude OAuth token is required"
-          exit 1
-        fi
-        echo "Claude OAuth token validation passed"
+        ${{ github.action_path }}/scripts/validate_token.sh "${{ inputs.claude_oauth_token }}" "${{ inputs.github_token }}"
 
     - name: Set repository path output
       id: set-path
       shell: bash
       run: |
-        echo "repository_path=${{ github.workspace }}" >> $GITHUB_OUTPUT
+        ${{ github.action_path }}/scripts/set_output.sh "${{ github.workspace }}" "${{ inputs.git_user_name }}" "${{ inputs.git_user_email }}"

@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # Main test runner service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-test-runner
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - test-cache:/workspace/.test-cache
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+      - BATS_LIB_PATH=/usr/lib/bats
+      - TEST_TMPDIR=/workspace/.test-cache
+    working_dir: /workspace
+    command: make test
+    networks:
+      - test-network
+
+  # Unit tests only
+  unit-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-unit-tests
+    volumes:
+      - .:/workspace
+      - test-cache:/workspace/.test-cache
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+      - BATS_LIB_PATH=/usr/lib/bats
+    working_dir: /workspace
+    command: make test-unit
+    networks:
+      - test-network
+
+  # Integration tests with act CLI
+  integration-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-integration-tests
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - test-cache:/workspace/.test-cache
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+      - BATS_LIB_PATH=/usr/lib/bats
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    working_dir: /workspace
+    command: make test-integration
+    networks:
+      - test-network
+
+  # Security scanning
+  security-scan:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-security-scan
+    volumes:
+      - .:/workspace
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+    working_dir: /workspace
+    command: >
+      bash -c "
+        echo 'Running security scans...' &&
+        shellcheck actions/**/*.sh tests/**/*.bash &&
+        echo 'Security scan completed'
+      "
+    networks:
+      - test-network
+
+  # Performance benchmarks
+  performance-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-performance-tests
+    volumes:
+      - .:/workspace
+      - test-cache:/workspace/.test-cache
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+      - BATS_LIB_PATH=/usr/lib/bats
+    working_dir: /workspace
+    command: >
+      bash -c "
+        echo 'Running performance benchmarks...' &&
+        time make test-unit > reports/performance.log 2>&1 &&
+        echo 'Performance tests completed'
+      "
+    networks:
+      - test-network
+
+  # Test report generator
+  test-reports:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-test-reports
+    volumes:
+      - .:/workspace
+      - test-reports:/workspace/reports
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=true
+    working_dir: /workspace
+    command: >
+      bash -c "
+        echo 'Generating test reports...' &&
+        make test-report &&
+        echo 'Reports generated in ./reports/'
+      "
+    depends_on:
+      - unit-tests
+      - integration-tests
+      - security-scan
+      - performance-tests
+    networks:
+      - test-network
+
+  # Interactive development environment
+  dev-shell:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: actions-dev-shell
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - test-cache:/workspace/.test-cache
+    environment:
+      - GITHUB_ACTIONS=false
+      - CI=false
+      - BATS_LIB_PATH=/usr/lib/bats
+    working_dir: /workspace
+    command: bash
+    stdin_open: true
+    tty: true
+    networks:
+      - test-network
+
+volumes:
+  test-cache:
+    driver: local
+  test-reports:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge

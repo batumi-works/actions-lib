@@ -1,0 +1,100 @@
+# Dockerfile for running GitHub Actions tests in a container
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BATS_LIB_PATH=/usr/lib/bats
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Create test user
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Core testing tools
+    bats \
+    shellcheck \
+    python3 \
+    python3-pip \
+    # Development tools
+    curl \
+    wget \
+    git \
+    make \
+    jq \
+    # Docker client
+    docker.io \
+    # GitHub CLI
+    gh \
+    # Text processing
+    sed \
+    grep \
+    findutils \
+    # Performance tools
+    time \
+    # Network tools
+    netcat \
+    # Ruby for coverage
+    ruby \
+    ruby-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ruby gems for coverage
+RUN gem install bashcov simplecov
+
+# Install act CLI
+RUN curl -L https://github.com/nektos/act/releases/latest/download/act_Linux_x86_64.tar.gz | tar -xz \
+    && mv act /usr/local/bin/ \
+    && chmod +x /usr/local/bin/act
+
+# Install additional Python packages for text processing
+RUN pip3 install --no-cache-dir \
+    pyyaml \
+    jinja2
+
+# Create workspace directory
+RUN mkdir -p /workspace && chown testuser:testuser /workspace
+
+# Create directories for test artifacts
+RUN mkdir -p /workspace/{.test-cache,reports,artifacts} \
+    && chown -R testuser:testuser /workspace
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy project files
+COPY --chown=testuser:testuser . .
+
+# Make scripts executable
+RUN find . -name "*.sh" -exec chmod +x {} \; \
+    && find . -name "*.bats" -exec chmod +r {} \;
+
+# Create test configuration
+RUN echo '# Test configuration' > /workspace/.test-config \
+    && echo 'export BATS_TEST_TIMEOUT=300' >> /workspace/.test-config \
+    && echo 'export TEST_PARALLEL=true' >> /workspace/.test-config \
+    && chown testuser:testuser /workspace/.test-config
+
+# Switch to test user
+USER testuser
+
+# Verify installations
+RUN bats --version && \
+    act --version && \
+    shellcheck --version && \
+    python3 --version && \
+    git --version && \
+    gh --version
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD bats --version || exit 1
+
+# Default command
+CMD ["make", "test"]
+
+# Labels
+LABEL maintainer="GitHub Actions Test Suite"
+LABEL version="1.0.0"
+LABEL description="Container for running comprehensive GitHub Actions tests"

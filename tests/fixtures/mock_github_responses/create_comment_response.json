@@ -1,0 +1,13 @@
+{
+  "data": {
+    "id": 456,
+    "html_url": "https://github.com/test-org/test-repo/issues/1#issuecomment-456",
+    "body": "Test comment body",
+    "user": {
+      "login": "test-user",
+      "id": 789
+    },
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z"
+  }
+}

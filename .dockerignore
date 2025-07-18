@@ -1,0 +1,100 @@
+# Ignore unnecessary files for Docker build
+
+# Git
+.git/
+.gitignore
+
+# Test artifacts
+.test-cache/
+reports/
+artifacts/
+coverage/
+*.log
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Ruby
+*.gem
+*.rbc
+/.config
+/coverage/
+/InstalledFiles
+/pkg/
+/spec/reports/
+/spec/examples.txt
+/test/tmp/
+/test/version_tmp/
+/tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/workflows/
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Secrets
+.secrets
+secrets/
+*.pem
+*.key
+
+# Backup files
+*.bak
+*.backup
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Large files that shouldn't be in containers
+*.iso
+*.dmg
+*.pkg

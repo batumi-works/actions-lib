@@ -1,0 +1,24 @@
+{
+  "data": {
+    "number": 123,
+    "title": "Test Issue",
+    "body": "Test issue body with detailed description",
+    "user": {
+      "login": "test-user",
+      "id": 789
+    },
+    "state": "open",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "labels": [
+      {
+        "name": "bug",
+        "color": "d73a4a"
+      },
+      {
+        "name": "priority:high",
+        "color": "ff0000"
+      }
+    ]
+  }
+}
