@@ -1,0 +1,26 @@
+name: Test Bot Token Fix
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  test-prp-pipeline:
+    if: contains(github.event.comment.body, '/test-prp') || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/claude-prp-pipeline.yml
+    with:
+      api_provider: 'anthropic'
+      skip_pr_check: true
+    secrets:
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_oauth_token: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
+
+  test-agent-pipeline:
+    if: contains(github.event.comment.body, '/test-agent') || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/claude-agent-pipeline.yml
+    with:
+      api_provider: 'anthropic'
+    secrets:
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_oauth_token: ${{ secrets.CLAUDE_OAUTH_TOKEN }}
