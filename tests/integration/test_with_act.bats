@@ -26,6 +26,9 @@ EOF
     
     cd "$BATS_TEST_TMPDIR/test_workflow"
     
+    # Copy .actrc configuration
+    cp "$BATS_TEST_DIRNAME/../../.actrc" .
+    
     # Run the workflow with act
     run act --dryrun
     [ "$status" -eq 0 ]
@@ -58,6 +61,15 @@ EOF
     
     # Copy our actions to the test directory
     cp -r "$BATS_TEST_DIRNAME/../../actions" .
+    
+    # Copy .actrc configuration
+    cp "$BATS_TEST_DIRNAME/../../.actrc" .
+    
+    # Create .secrets file for act
+    cat > .secrets << 'EOF'
+GITHUB_TOKEN=test-github-token
+CLAUDE_CODE_OAUTH_TOKEN=test-token
+EOF
     
     # Run with act in dry-run mode
     run act --dryrun

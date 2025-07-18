@@ -25,9 +25,13 @@ teardown_test_env() {
 
 # Load test utilities
 load_test_utils() {
-    load "$BATS_TEST_DIRNAME/utils/test_helpers.bash"
-    load "$BATS_TEST_DIRNAME/utils/github_mocks.bash"
-    load "$BATS_TEST_DIRNAME/utils/git_mocks.bash"
+    # Find the tests root directory by looking for bats-setup.bash
+    local tests_root
+    tests_root="$(cd "$BATS_TEST_DIRNAME" && while [[ ! -f "bats-setup.bash" ]]; do cd ..; done && pwd)"
+    
+    load "$tests_root/utils/test_helpers.bash"
+    load "$tests_root/utils/github_mocks.bash"
+    load "$tests_root/utils/git_mocks.bash"
 }
 
 # Mock GitHub Actions environment

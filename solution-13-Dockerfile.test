@@ -1,0 +1,170 @@
+# Dockerfile for running GitHub Actions tests in a container
+FROM ubuntu:22.04
+
+# Version definitions - Pin all external dependencies
+ARG ACT_VERSION=0.2.54
+ARG BASHCOV_VERSION=3.1.2
+ARG SIMPLECOV_VERSION=0.22.0
+ARG PYYAML_VERSION=6.0.1
+ARG JINJA2_VERSION=3.1.2
+ARG SHELLCHECK_VERSION=0.9.0
+ARG GH_CLI_VERSION=2.40.0
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BATS_LIB_PATH=/usr/lib/bats
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Create test user
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Update package lists and install essential packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    gnupg \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install core system dependencies with versions where available
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git=1:2.34.* \
+    make=4.3-* \
+    build-essential=12.9* \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install development tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    jq=1.6-* \
+    sed \
+    grep \
+    findutils \
+    time \
+    netcat \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install shellcheck from specific version
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then ARCH="x86_64"; fi && \
+    if [ "$ARCH" = "arm64" ]; then ARCH="aarch64"; fi && \
+    wget -qO- "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.${ARCH}.tar.xz" | tar -xJf - && \
+    mv "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/ && \
+    rm -rf "shellcheck-v${SHELLCHECK_VERSION}" && \
+    chmod +x /usr/local/bin/shellcheck
+
+# Install BATS from package manager (version controlled by Ubuntu)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bats=1.2.1-* \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python with specific version
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3=3.10.* \
+    python3-pip=22.0.* \
+    python3-setuptools=59.6.* \
+    python3-wheel=0.37.* \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ruby with specific version
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ruby=1:3.0* \
+    ruby-dev=1:3.0* \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI with specific version
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    docker.io=20.10.* \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI with specific version
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -L "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${ARCH}.tar.gz" | tar -xz && \
+    mv "gh_${GH_CLI_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/ && \
+    rm -rf "gh_${GH_CLI_VERSION}_linux_${ARCH}" && \
+    chmod +x /usr/local/bin/gh
+
+# Install Ruby gems with specific versions
+RUN gem install bashcov:${BASHCOV_VERSION} simplecov:${SIMPLECOV_VERSION}
+
+# Install act CLI with specific version
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then ARCH="x86_64"; fi && \
+    if [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi && \
+    curl -L "https://github.com/nektos/act/releases/download/v${ACT_VERSION}/act_Linux_${ARCH}.tar.gz" | tar -xz \
+    && mv act /usr/local/bin/ \
+    && chmod +x /usr/local/bin/act
+
+# Install Python packages with specific versions
+RUN pip3 install --no-cache-dir \
+    pyyaml==${PYYAML_VERSION} \
+    jinja2==${JINJA2_VERSION}
+
+# Create pip constraints file for reproducible builds
+RUN echo "# Python package constraints" > /workspace-constraints.txt && \
+    echo "PyYAML==${PYYAML_VERSION}" >> /workspace-constraints.txt && \
+    echo "Jinja2==${JINJA2_VERSION}" >> /workspace-constraints.txt && \
+    echo "MarkupSafe>=2.0" >> /workspace-constraints.txt
+
+# Create version manifest
+RUN echo "# Installed versions" > /versions.txt && \
+    echo "Ubuntu: 22.04" >> /versions.txt && \
+    echo "Act: ${ACT_VERSION}" >> /versions.txt && \
+    echo "Bashcov: ${BASHCOV_VERSION}" >> /versions.txt && \
+    echo "Simplecov: ${SIMPLECOV_VERSION}" >> /versions.txt && \
+    echo "PyYAML: ${PYYAML_VERSION}" >> /versions.txt && \
+    echo "Jinja2: ${JINJA2_VERSION}" >> /versions.txt && \
+    echo "Shellcheck: ${SHELLCHECK_VERSION}" >> /versions.txt && \
+    echo "GitHub CLI: ${GH_CLI_VERSION}" >> /versions.txt && \
+    echo "Git: $(git --version | cut -d' ' -f3)" >> /versions.txt && \
+    echo "Python: $(python3 --version | cut -d' ' -f2)" >> /versions.txt && \
+    echo "Ruby: $(ruby --version | cut -d' ' -f2)" >> /versions.txt && \
+    echo "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')" >> /versions.txt
+
+# Create workspace directory structure
+RUN mkdir -p /workspace/{.test-cache,reports,artifacts} \
+    && chown -R testuser:testuser /workspace
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy project files
+COPY --chown=testuser:testuser . .
+
+# Make scripts executable
+RUN find . -name "*.sh" -exec chmod +x {} \; \
+    && find . -name "*.bats" -exec chmod +r {} \;
+
+# Create test configuration
+RUN echo '# Test configuration' > /workspace/.test-config \
+    && echo 'export BATS_TEST_TIMEOUT=300' >> /workspace/.test-config \
+    && echo 'export TEST_PARALLEL=true' >> /workspace/.test-config \
+    && chown testuser:testuser /workspace/.test-config
+
+# Switch to test user
+USER testuser
+
+# Verification layer with version checks
+RUN echo "=== Version Verification ===" && \
+    bats --version && \
+    act --version | grep -q "v${ACT_VERSION}" && \
+    shellcheck --version | grep -q "version: ${SHELLCHECK_VERSION}" && \
+    python3 --version && \
+    git --version && \
+    gh --version | grep -q "v${GH_CLI_VERSION}" && \
+    echo "=== All version checks passed ==="
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD bats --version || exit 1
+
+# Default command
+CMD ["make", "test"]
+
+# Labels with version information
+LABEL maintainer="GitHub Actions Test Suite"
+LABEL version="1.0.0"
+LABEL description="Container for running comprehensive GitHub Actions tests"
+LABEL act.version="${ACT_VERSION}"
+LABEL shellcheck.version="${SHELLCHECK_VERSION}"
+LABEL gh-cli.version="${GH_CLI_VERSION}"

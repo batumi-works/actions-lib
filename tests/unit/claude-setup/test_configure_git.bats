@@ -104,10 +104,18 @@ EOF
 }
 
 @test "configure_git script handles missing git command" {
+    # Save original PATH
+    local original_path="$PATH"
+    
     # Remove git from PATH
     export PATH=""
     
     # Test with missing git command
     run bash "$BATS_TEST_DIRNAME/../../../actions/claude-setup/scripts/configure_git.sh" "Test User" "test@example.com" "true"
-    [ "$status" -eq 127 ]  # Command not found
+    local test_status="$status"
+    
+    # Restore PATH before teardown
+    export PATH="$original_path"
+    
+    [ "$test_status" -eq 127 ]  # Command not found
 }

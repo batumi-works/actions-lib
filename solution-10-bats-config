@@ -1,0 +1,147 @@
+# BATS configuration file for GitHub Actions testing
+
+# Function to find BATS library path
+find_bats_lib_path() {
+    # Common BATS library locations
+    local possible_paths=(
+        "/usr/lib/bats"
+        "/usr/local/lib/bats"
+        "/opt/homebrew/lib/bats"
+        "/usr/share/bats"
+        "/usr/local/share/bats"
+        "${HOME}/.local/lib/bats"
+        "${HOME}/.bats/lib"
+        "${BATS_ROOT}/lib" # If BATS_ROOT is set
+    )
+    
+    # Check npm global installation
+    if command -v npm >/dev/null 2>&1; then
+        local npm_prefix=$(npm config get prefix 2>/dev/null)
+        if [[ -n "$npm_prefix" ]]; then
+            possible_paths+=("${npm_prefix}/lib/node_modules/bats/lib")
+            possible_paths+=("${npm_prefix}/lib/node_modules/bats-core/lib")
+        fi
+    fi
+    
+    # Check each possible path
+    for path in "${possible_paths[@]}"; do
+        if [[ -d "$path" ]]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    
+    # Try to find using bats executable location
+    if command -v bats >/dev/null 2>&1; then
+        local bats_bin=$(command -v bats)
+        local bats_dir=$(dirname "$bats_bin")
+        local potential_lib="${bats_dir}/../lib/bats"
+        
+        if [[ -d "$potential_lib" ]]; then
+            echo "$(cd "$potential_lib" && pwd)"
+            return 0
+        fi
+        
+        # Check relative to bats installation
+        potential_lib="${bats_dir}/../share/bats"
+        if [[ -d "$potential_lib" ]]; then
+            echo "$(cd "$potential_lib" && pwd)"
+            return 0
+        fi
+    fi
+    
+    # Default fallback
+    echo "/usr/lib/bats"
+}
+
+# Auto-detect BATS library path if not already set
+if [[ -z "${BATS_LIB_PATH}" ]]; then
+    export BATS_LIB_PATH=$(find_bats_lib_path)
+    
+    # Verify the path exists
+    if [[ ! -d "$BATS_LIB_PATH" ]]; then
+        echo "Warning: BATS library path not found at: $BATS_LIB_PATH" >&2
+        echo "You may need to install bats-core or set BATS_LIB_PATH manually" >&2
+    fi
+fi
+
+# Allow override via environment variable
+export BATS_LIB_PATH="${BATS_LIB_PATH_OVERRIDE:-$BATS_LIB_PATH}"
+
+# Test timeout configuration
+export BATS_TEST_TIMEOUT="${BATS_TEST_TIMEOUT:-60}"
+
+# Test output format
+export BATS_NO_PARALLELIZE_ACROSS_FILES="${BATS_NO_PARALLELIZE_ACROSS_FILES:-1}"
+export BATS_NO_PARALLELIZE_WITHIN_FILE="${BATS_NO_PARALLELIZE_WITHIN_FILE:-1}"
+
+# Enable debug mode if needed
+# export BATS_DEBUG="${BATS_DEBUG:-0}"
+
+# Set up temporary directory for tests
+export BATS_TEST_TMPDIR="${BATS_TEST_TMPDIR:-/tmp/bats-actions-test}"
+
+# Create temp directory if it doesn't exist
+if [[ ! -d "$BATS_TEST_TMPDIR" ]]; then
+    mkdir -p "$BATS_TEST_TMPDIR" 2>/dev/null || {
+        # Fallback to system temp
+        export BATS_TEST_TMPDIR="${TMPDIR:-/tmp}/bats-actions-test-$$"
+        mkdir -p "$BATS_TEST_TMPDIR"
+    }
+fi
+
+# Platform-specific configurations
+case "$(uname -s)" in
+    Darwin)
+        # macOS specific settings
+        export BATS_MACOS=1
+        # Use GNU utilities if available
+        if command -v greadlink >/dev/null 2>&1; then
+            export READLINK_CMD="greadlink"
+        else
+            export READLINK_CMD="readlink"
+        fi
+        ;;
+    Linux)
+        # Linux specific settings
+        export BATS_LINUX=1
+        export READLINK_CMD="readlink"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        # Windows specific settings
+        export BATS_WINDOWS=1
+        export BATS_TEST_TMPDIR="${TEMP}/bats-actions-test"
+        ;;
+esac
+
+# Load helper libraries if they exist
+if [[ -d "$BATS_LIB_PATH" ]]; then
+    # Load bats-support if available
+    if [[ -f "$BATS_LIB_PATH/bats-support/load.bash" ]]; then
+        load "$BATS_LIB_PATH/bats-support/load.bash"
+    fi
+    
+    # Load bats-assert if available
+    if [[ -f "$BATS_LIB_PATH/bats-assert/load.bash" ]]; then
+        load "$BATS_LIB_PATH/bats-assert/load.bash"
+    fi
+    
+    # Load bats-file if available
+    if [[ -f "$BATS_LIB_PATH/bats-file/load.bash" ]]; then
+        load "$BATS_LIB_PATH/bats-file/load.bash"
+    fi
+fi
+
+# Load project-specific test setup
+if [[ -f "$(dirname "${BASH_SOURCE[0]}")/bats-setup.bash" ]]; then
+    load "$(dirname "${BASH_SOURCE[0]}")/bats-setup"
+fi
+
+# Export configuration summary for debugging
+if [[ "${BATS_DEBUG}" == "1" ]]; then
+    echo "BATS Configuration:" >&2
+    echo "  BATS_LIB_PATH: $BATS_LIB_PATH" >&2
+    echo "  BATS_TEST_TMPDIR: $BATS_TEST_TMPDIR" >&2
+    echo "  BATS_TEST_TIMEOUT: $BATS_TEST_TIMEOUT" >&2
+    echo "  Platform: $(uname -s)" >&2
+fi

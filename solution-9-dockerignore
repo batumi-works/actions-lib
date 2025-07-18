@@ -1,0 +1,188 @@
+# Ignore unnecessary files for Docker build
+
+# Git
+.git/
+.gitignore
+
+# Test artifacts
+.test-cache/
+reports/
+artifacts/
+coverage/
+*.log
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Ruby
+*.gem
+*.rbc
+/.config
+/coverage/
+/InstalledFiles
+/pkg/
+/spec/reports/
+/spec/examples.txt
+/test/tmp/
+/test/version_tmp/
+/tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Docker - More targeted exclusions
+# Only exclude test-specific Docker files
+Dockerfile.test
+Dockerfile.dev
+docker-compose.test.yml
+docker-compose.dev.yml
+.dockerignore
+
+# Do NOT exclude production Docker files:
+# - Dockerfile (main production file)
+# - docker-compose.yml (main compose file)
+# - docker-compose.prod.yml (production overrides)
+
+# CI/CD
+.github/workflows/
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+# Do NOT exclude .env.example or .env.sample
+
+# Secrets
+.secrets
+secrets/
+*.pem
+*.key
+# Do NOT exclude *.pub (public keys may be needed)
+
+# Backup files
+*.bak
+*.backup
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Large files that shouldn't be in containers
+*.iso
+*.dmg
+*.pkg
+
+# Test-specific exclusions
+tests/fixtures/large-files/
+tests/integration/temp/
+tests/e2e/screenshots/
+tests/performance/results/
+
+# Build artifacts that should be excluded
+dist/
+build/
+out/
+target/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Cache directories
+.cache/
+.npm/
+.yarn/
+.pnpm-store/
+
+# Local development files
+.local/
+local-config/
+*.local.yml
+*.local.yaml
+
+# Monitoring and profiling
+.nyc_output/
+.instrumented/
+*.prof
+*.heap
+
+# Database files (for local dev)
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Log files with specific patterns
+logs/
+*.log.*
+*-debug.log
+*-error.log
+
+# Generated documentation
+api-docs/
+generated-docs/
+
+# Temporary editor files
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# macOS specific
+.AppleDouble
+.LSOverride
+Icon
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows specific
+Desktop.ini
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux specific
+.directory
+.Trash-*
+.nfs*

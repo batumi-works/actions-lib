@@ -40,8 +40,11 @@ cd "$BATS_TEST_TMPDIR"
 if [[ "$HAS_PRP" == "true" ]]; then
     # Check if PRP base execute template exists
     if [ -f ".claude/commands/PRPs/prp-base-execute.md" ]; then
-        template_content=$(cat .claude/commands/PRPs/prp-base-execute.md)
-        echo "$template_content" | sed "s/\$ARGUMENTS/$PRP_PATH/g" > /tmp/prp-implementation-prompt.md
+        # Use awk for safer substitution
+        awk -v prp="$PRP_PATH" '{
+            gsub(/\$ARGUMENTS/, prp)
+            print
+        }' .claude/commands/PRPs/prp-base-execute.md > /tmp/prp-implementation-prompt.md
         echo "Created implementation prompt for: $PRP_PATH"
     else
         echo "PRP base execute template not found, creating basic prompt"
@@ -61,11 +64,14 @@ EOF
     # Check that prompt was created
     assert_file_exists "/tmp/prp-implementation-prompt.md"
     
-    # Check content
+    # Check content - template should be used with PRP path substituted
     run cat /tmp/prp-implementation-prompt.md
     [[ "$output" =~ "# PRP Implementation Template" ]]
+    [[ "$output" =~ "## PRP to Implement" ]]
     [[ "$output" =~ "PRPs/test-feature.md" ]]
-    [[ "$output" =~ "Please implement the PRP specified above" ]]
+    [[ "$output" =~ "## Instructions" ]]
+    [[ "$output" =~ "Please implement the PRP specified above following these guidelines:" ]]
+    [[ "$output" =~ "1. Read and understand the requirements" ]]
 }
 
 @test "implementation prompt falls back when template missing" {
@@ -149,16 +155,12 @@ cd "$BATS_TEST_TMPDIR"
 if [[ "$HAS_PRP" == "true" ]]; then
     # Check if PRP base execute template exists
     if [ -f ".claude/commands/PRPs/prp-base-execute.md" ]; then
-        template_content=$(cat .claude/commands/PRPs/prp-base-execute.md)
-        # Use more robust substitution for complex paths
-        python3 -c "
-import sys
-template = open('.claude/commands/PRPs/prp-base-execute.md').read()
-result = template.replace('\$ARGUMENTS', '$PRP_PATH')
-with open('/tmp/prp-implementation-prompt.md', 'w') as f:
-    f.write(result)
-print('Created implementation prompt for: $PRP_PATH')
-"
+        # Use awk for safer substitution with complex paths
+        awk -v prp="$PRP_PATH" '{
+            gsub(/\$ARGUMENTS/, prp)
+            print
+        }' .claude/commands/PRPs/prp-base-execute.md > /tmp/prp-implementation-prompt.md
+        echo "Created implementation prompt for: $PRP_PATH"
     else
         echo "PRP base execute template not found, creating basic prompt"
         echo "Please implement the PRP located at: $PRP_PATH" > /tmp/prp-implementation-prompt.md
@@ -182,6 +184,9 @@ EOF
 @test "implementation prompt skips when no PRP" {
     # Set up test environment
     setup_github_actions_env
+    
+    # Remove any existing prompt file to ensure clean test
+    rm -f /tmp/prp-implementation-prompt.md
     
     # Create the test script
     cat > "$BATS_TEST_TMPDIR/test_no_prp_prompt.sh" << 'EOF'
@@ -241,7 +246,7 @@ EOF
     mkdir -p "$BATS_TEST_TMPDIR/PRPs"
     create_sample_prp "$BATS_TEST_TMPDIR/PRPs/test-feature.md"
     
-    # Create the test script using Python for robust handling
+    # Create the test script using awk for robust handling
     cat > "$BATS_TEST_TMPDIR/test_special_chars.sh" << 'EOF'
 #!/usr/bin/env bash
 # Test special characters in template
@@ -254,15 +259,12 @@ cd "$BATS_TEST_TMPDIR"
 if [[ "$HAS_PRP" == "true" ]]; then
     # Check if PRP base execute template exists
     if [ -f ".claude/commands/PRPs/prp-base-execute.md" ]; then
-        # Use Python for robust text processing
-        python3 -c "
-import sys
-template = open('.claude/commands/PRPs/prp-base-execute.md').read()
-result = template.replace('\$ARGUMENTS', '$PRP_PATH')
-with open('/tmp/prp-implementation-prompt.md', 'w') as f:
-    f.write(result)
-print('Created implementation prompt with special characters')
-"
+        # Use awk for robust text processing
+        awk -v prp="$PRP_PATH" '{
+            gsub(/\$ARGUMENTS/, prp)
+            print
+        }' .claude/commands/PRPs/prp-base-execute.md > /tmp/prp-implementation-prompt.md
+        echo "Created implementation prompt with special characters"
     else
         echo "PRP base execute template not found"
     fi

@@ -7,6 +7,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$PROJECT_DIR/docker-compose.test.yml"
+VERBOSE=false
+LOG_FILE="$PROJECT_DIR/docker-test.log"
+
+# Source error handling utilities
+if [[ -f "$SCRIPT_DIR/error-handler.sh" ]]; then
+    source "$SCRIPT_DIR/error-handler.sh"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,6 +25,12 @@ NC='\033[0m' # No Color
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_verbose() {
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo -e "${BLUE}[VERBOSE]${NC} $1"
+    fi
 }
 
 log_success() {
@@ -84,20 +97,30 @@ EOF
 # Check prerequisites
 check_prerequisites() {
     log_info "Checking prerequisites..."
+    log_verbose "Checking for required tools and dependencies"
     
     local errors=0
     
-    # Check Docker
-    if ! command -v docker &> /dev/null; then
-        log_error "Docker is not installed or not in PATH"
+    # Check Docker with enhanced error handling
+    if ! check_command "docker" "DOCKER_NOT_FOUND"; then
         ((errors++))
     else
         log_info "Docker: $(docker --version)"
+        
+        # Check Docker daemon
+        if ! docker info &> /dev/null; then
+            handle_error "${ERROR_CODES[DOCKER_NOT_RUNNING]}" \
+                "Docker daemon is not running" \
+                "DOCKER_NOT_RUNNING"
+            ((errors++))
+        fi
     fi
     
     # Check Docker Compose
     if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        log_error "Docker Compose is not installed or not in PATH"
+        handle_error "${ERROR_CODES[COMPOSE_NOT_FOUND]}" \
+            "Docker Compose is not installed or not in PATH" \
+            "COMPOSE_NOT_FOUND"
         ((errors++))
     else
         if command -v docker-compose &> /dev/null; then
@@ -107,22 +130,13 @@ check_prerequisites() {
         fi
     fi
     
-    # Check Docker daemon
-    if ! docker info &> /dev/null; then
-        log_error "Docker daemon is not running"
-        ((errors++))
-    fi
-    
-    # Check disk space
-    local available_space=$(df "$PROJECT_DIR" | awk 'NR==2 {print $4}')
-    local required_space=2000000  # 2GB in KB
-    
-    if [ "$available_space" -lt "$required_space" ]; then
-        log_warning "Low disk space: $(($available_space / 1024))MB available, 2GB recommended"
+    # Check disk space with enhanced error handling
+    if ! check_disk_space 2000 "$PROJECT_DIR"; then
+        log_warning "Continuing with low disk space warning"
     fi
     
     if [ $errors -gt 0 ]; then
-        log_error "Prerequisites check failed. Please install missing dependencies."
+        log_error "Prerequisites check failed. See suggestions above."
         exit 1
     fi
     
@@ -152,19 +166,34 @@ build_container() {
     # Use BuildKit for faster builds
     export DOCKER_BUILDKIT=1
     
-    if docker build $no_cache -f Dockerfile.test -t actions-test .; then
-        log_success "Container built successfully"
+    # Build with retry on network errors
+    local build_cmd="docker build $no_cache -f Dockerfile.test -t actions-test ."
+    
+    if [[ "$VERBOSE" == "true" ]]; then
+        if ! retry_with_backoff 3 2 "$build_cmd"; then
+            handle_error "${ERROR_CODES[BUILD_FAILED]}" \
+                "Container build failed after retries" \
+                "BUILD_FAILED"
+            exit 1
+        fi
     else
-        log_error "Container build failed"
-        exit 1
+        if ! retry_with_backoff 3 2 "$build_cmd > $LOG_FILE 2>&1"; then
+            handle_error "${ERROR_CODES[BUILD_FAILED]}" \
+                "Container build failed. Check $LOG_FILE for details" \
+                "BUILD_FAILED"
+            echo "Last 50 lines of build log:" >&2
+            tail -n 50 "$LOG_FILE" >&2
+            exit 1
+        fi
     fi
+    
+    log_success "Container built successfully"
 }
 
 # Run tests
 run_tests() {
     local service="$1"
     local detach=""
-    local verbose=""
     
     shift
     
@@ -175,7 +204,8 @@ run_tests() {
                 shift
                 ;;
             -v|--verbose)
-                verbose="--verbose"
+                VERBOSE=true
+                log_verbose "Verbose mode enabled"
                 shift
                 ;;
             --parallel)
@@ -191,10 +221,18 @@ run_tests() {
     local compose_cmd=$(get_compose_cmd)
     
     log_info "Running $service tests..."
+    log_verbose "Service: $service, Detached: ${detach:-no}"
     
     cd "$PROJECT_DIR"
     
-    if $compose_cmd -f "$COMPOSE_FILE" up $detach --abort-on-container-exit $service; then
+    local compose_opts=""
+    if [[ "$VERBOSE" == "true" ]]; then
+        compose_opts="--verbose"
+    fi
+    
+    log_verbose "Running: $compose_cmd -f $COMPOSE_FILE up $detach --abort-on-container-exit $service"
+    
+    if $compose_cmd $compose_opts -f "$COMPOSE_FILE" up $detach --abort-on-container-exit $service; then
         if [[ -z "$detach" ]]; then
             log_success "$service tests completed successfully"
         else
@@ -208,54 +246,62 @@ run_tests() {
 
 # Run parallel tests
 run_parallel_tests() {
-    local compose_cmd=$(get_compose_cmd)
-    
-    log_info "Running tests in parallel..."
+    log_info "Launching enhanced parallel test runner..."
     
     cd "$PROJECT_DIR"
     
-    # Start all test services in parallel
-    $compose_cmd -f "$COMPOSE_FILE" up -d \
-        unit-tests \
-        integration-tests \
-        security-scan \
-        performance-tests
-    
-    # Wait for completion
-    log_info "Waiting for parallel tests to complete..."
-    
-    $compose_cmd -f "$COMPOSE_FILE" wait \
-        unit-tests \
-        integration-tests \
-        security-scan \
-        performance-tests
-    
-    # Check exit codes
-    local failed_services=()
-    
-    for service in unit-tests integration-tests security-scan performance-tests; do
-        local exit_code=$($compose_cmd -f "$COMPOSE_FILE" ps -q $service | xargs docker inspect --format='{{.State.ExitCode}}')
-        if [[ "$exit_code" != "0" ]]; then
-            failed_services+=($service)
-        fi
-    done
-    
-    if [[ ${#failed_services[@]} -eq 0 ]]; then
-        log_success "All parallel tests completed successfully"
-        
-        # Generate reports
-        log_info "Generating test reports..."
-        $compose_cmd -f "$COMPOSE_FILE" up test-reports
+    # Use the enhanced parallel test runner
+    if [[ -x "$PROJECT_DIR/scripts/parallel-test-runner.sh" ]]; then
+        "$PROJECT_DIR/scripts/parallel-test-runner.sh"
     else
-        log_error "The following services failed: ${failed_services[*]}"
+        # Fallback to basic parallel execution
+        local compose_cmd=$(get_compose_cmd)
         
-        # Show logs for failed services
-        for service in "${failed_services[@]}"; do
-            log_error "Logs for failed service: $service"
-            $compose_cmd -f "$COMPOSE_FILE" logs $service
+        log_info "Running tests in parallel (basic mode)..."
+        
+        # Start all test services in parallel
+        $compose_cmd -f "$COMPOSE_FILE" up -d \
+            unit-tests \
+            integration-tests \
+            security-scan \
+            performance-tests
+        
+        # Wait for completion
+        log_info "Waiting for parallel tests to complete..."
+        
+        $compose_cmd -f "$COMPOSE_FILE" wait \
+            unit-tests \
+            integration-tests \
+            security-scan \
+            performance-tests
+        
+        # Check exit codes
+        local failed_services=()
+        
+        for service in unit-tests integration-tests security-scan performance-tests; do
+            local exit_code=$($compose_cmd -f "$COMPOSE_FILE" ps -q $service | xargs docker inspect --format='{{.State.ExitCode}}')
+            if [[ "$exit_code" != "0" ]]; then
+                failed_services+=($service)
+            fi
         done
         
-        exit 1
+        if [[ ${#failed_services[@]} -eq 0 ]]; then
+            log_success "All parallel tests completed successfully"
+            
+            # Generate reports
+            log_info "Generating test reports..."
+            $compose_cmd -f "$COMPOSE_FILE" up test-reports
+        else
+            log_error "The following services failed: ${failed_services[*]}"
+            
+            # Show logs for failed services
+            for service in "${failed_services[@]}"; do
+                log_error "Logs for failed service: $service"
+                $compose_cmd -f "$COMPOSE_FILE" logs $service
+            done
+            
+            exit 1
+        fi
     fi
 }
 
@@ -284,9 +330,11 @@ cleanup() {
     cd "$PROJECT_DIR"
     
     # Stop and remove containers
+    log_verbose "Stopping and removing containers..."
     $compose_cmd -f "$COMPOSE_FILE" down --remove-orphans
     
     # Remove volumes
+    log_verbose "Removing volumes..."
     $compose_cmd -f "$COMPOSE_FILE" down -v
     
     # Remove test image
@@ -295,8 +343,28 @@ cleanup() {
         log_info "Removed test image"
     fi
     
-    # Clean up Docker system
-    docker system prune -f
+    # Clean up project-specific Docker resources
+    log_info "Cleaning up project-specific Docker resources..."
+    
+    # Remove only dangling images created by this project
+    local dangling_images=$(docker images -f "dangling=true" -q --filter "label=project=actions-lib")
+    if [[ -n "$dangling_images" ]]; then
+        docker rmi $dangling_images 2>/dev/null || true
+        log_info "Removed dangling images"
+    fi
+    
+    # Optional: Ask for confirmation for system-wide cleanup
+    if [[ "${DOCKER_FULL_CLEANUP:-false}" == "true" ]]; then
+        log_warning "Full Docker system cleanup requested"
+        read -p "This will remove ALL dangling Docker resources. Continue? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            docker system prune -f
+            log_info "Full system cleanup completed"
+        else
+            log_info "Skipped full system cleanup"
+        fi
+    fi
     
     log_success "Cleanup completed"
 }
@@ -348,6 +416,7 @@ validate_setup() {
     
     # Validate compose file
     cd "$PROJECT_DIR"
+    log_verbose "Validating compose file: $COMPOSE_FILE"
     if $compose_cmd -f "$COMPOSE_FILE" config > /dev/null; then
         log_success "Docker Compose file is valid"
     else

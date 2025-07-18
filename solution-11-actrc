@@ -1,0 +1,59 @@
+# act configuration file for local GitHub Actions testing
+
+# Use default GitHub Actions images
+-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest
+-P ubuntu-22.04=ghcr.io/catthehacker/ubuntu:act-22.04
+-P ubuntu-20.04=ghcr.io/catthehacker/ubuntu:act-20.04
+-P ubuntu-18.04=ghcr.io/catthehacker/ubuntu:act-18.04
+
+# Platform configuration - Auto-detect by default
+# Users can override by setting ACT_PLATFORM environment variable
+# Example: export ACT_PLATFORM=linux/arm64
+#
+# Common platforms:
+# - linux/amd64 (Intel/AMD 64-bit)
+# - linux/arm64 (ARM 64-bit, e.g., Apple Silicon, AWS Graviton)
+# - linux/arm/v7 (ARM 32-bit)
+#
+# The platform will be auto-detected if not specified via:
+# 1. ACT_PLATFORM environment variable
+# 2. --platform command line flag
+# 3. Default to current system architecture
+
+# Use job container for better isolation
+--container-daemon-socket /var/run/docker.sock
+
+# Set default secrets file
+--secret-file .secrets
+
+# Enable verbose output for debugging
+--verbose
+
+# Set default artifact server
+--artifact-server-path /tmp/artifacts
+
+# Set default cache server
+--cache-server-path /tmp/cache
+
+# Use local Docker network
+--network host
+
+# Set environment variables
+--env GITHUB_ACTIONS=true
+--env CI=true
+
+# Additional platform-specific image mappings for ARM support
+# These will be used when running on ARM platforms
+-P ubuntu-latest-arm64=ghcr.io/catthehacker/ubuntu:act-latest
+-P ubuntu-22.04-arm64=ghcr.io/catthehacker/ubuntu:act-22.04
+-P ubuntu-20.04-arm64=ghcr.io/catthehacker/ubuntu:act-20.04
+
+# Windows runner images (if needed)
+-P windows-latest=ghcr.io/catthehacker/windows:act-latest
+-P windows-2022=ghcr.io/catthehacker/windows:act-2022
+-P windows-2019=ghcr.io/catthehacker/windows:act-2019
+
+# macOS runner simulation (runs Linux container)
+-P macos-latest=ghcr.io/catthehacker/ubuntu:act-latest
+-P macos-12=ghcr.io/catthehacker/ubuntu:act-latest
+-P macos-11=ghcr.io/catthehacker/ubuntu:act-latest

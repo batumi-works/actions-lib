@@ -5,7 +5,7 @@
 mock_git() {
     local behavior="${1:-default}"
     
-    cat > "$BATS_TEST_TMPDIR/mock_git" << EOF
+    cat > "$BATS_TEST_TMPDIR/git" << EOF
 #!/usr/bin/env bash
 # Mock git implementation
 
@@ -122,7 +122,7 @@ case "\$1" in
 esac
 EOF
     
-    chmod +x "$BATS_TEST_TMPDIR/mock_git"
+    chmod +x "$BATS_TEST_TMPDIR/git"
     export PATH="$BATS_TEST_TMPDIR:$PATH"
 }
 
@@ -130,7 +130,7 @@ EOF
 mock_git_with_responses() {
     local config_file="$1"
     
-    cat > "$BATS_TEST_TMPDIR/mock_git" << EOF
+    cat > "$BATS_TEST_TMPDIR/git" << EOF
 #!/usr/bin/env bash
 # Mock git with custom responses
 
@@ -185,7 +185,7 @@ case "\$1" in
 esac
 EOF
     
-    chmod +x "$BATS_TEST_TMPDIR/mock_git"
+    chmod +x "$BATS_TEST_TMPDIR/git"
     export PATH="$BATS_TEST_TMPDIR:$PATH"
 }
 
@@ -230,7 +230,8 @@ verify_git_command() {
         return 1
     fi
     
-    if ! grep -q "$expected_command" "$call_log"; then
+    # Check for the command with the "git called with:" prefix
+    if ! grep -q "git called with: $expected_command" "$call_log"; then
         echo "Expected git command not found: $expected_command"
         echo "Actual calls:"
         cat "$call_log"
@@ -281,5 +282,5 @@ mock_git_failures() {
 
 # Clean up git-specific mocks
 cleanup_git_mocks() {
-    rm -f "$BATS_TEST_TMPDIR"/mock_git*
+    rm -f "$BATS_TEST_TMPDIR"/git "$BATS_TEST_TMPDIR"/mock_git*
 }
