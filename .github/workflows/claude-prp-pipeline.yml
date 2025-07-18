@@ -148,7 +148,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: create-pr
           pr_title: "feat: implement ${{ steps.prp.outputs.prp_name }}"
           pr_head: ${{ steps.prp.outputs.branch_name }}
@@ -174,7 +174,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |
@@ -191,7 +191,7 @@ jobs:
         if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'false'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |
