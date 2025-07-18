@@ -89,7 +89,7 @@ jobs:
         uses: batumi-works/actions-lib/actions/claude-setup@v1
         with:
           claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           git_user_name: ${{ inputs.git_user_name }}
           git_user_email: ${{ inputs.git_user_email }}
           fetch_depth: 0
@@ -99,7 +99,7 @@ jobs:
         if: github.event_name == 'issues' || github.event_name == 'issue_comment'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: check-bot-status
           issue_number: ${{ github.event.issue.number }}
           bot_username: ${{ inputs.bot_username }}
@@ -188,7 +188,7 @@ jobs:
         if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true' && steps.commit.outputs.has_changes == 'true' && steps.find-prp.outputs.latest_prp != ''
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |
@@ -213,7 +213,7 @@ jobs:
         if: (github.event_name == 'issues' || github.event_name == 'issue_comment') && steps.bot-status.outputs.should_process == 'true' && steps.commit.outputs.has_changes == 'false'
         uses: batumi-works/actions-lib/actions/github-operations@v1
         with:
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           operation: comment-issue
           issue_number: ${{ github.event.issue.number }}
           comment_body: |

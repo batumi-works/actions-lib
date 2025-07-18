@@ -1,7 +1,7 @@
 name: 'GitHub Operations'
 description: 'Common GitHub API operations for PRs, issues, and comments'
 inputs:
-  github_token:
+  bot_token:
     description: 'GitHub token for API operations'
     required: true
   operation:
@@ -57,7 +57,7 @@ runs:
       if: inputs.operation == 'create-pr'
       uses: actions/github-script@v7
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.bot_token }}
         script: |
           const prTitle = '${{ inputs.pr_title }}';
           const prBody = '${{ inputs.pr_body }}';
@@ -89,7 +89,7 @@ runs:
       if: inputs.operation == 'comment-issue'
       uses: actions/github-script@v7
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.bot_token }}
         script: |
           const issueNumber = parseInt('${{ inputs.issue_number }}');
           const commentBody = '${{ inputs.comment_body }}';
@@ -113,7 +113,7 @@ runs:
       if: inputs.operation == 'check-bot-status'
       uses: actions/github-script@v7
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.bot_token }}
         script: |
           const issueNumber = parseInt('${{ inputs.issue_number }}');
           const botUsername = '${{ inputs.bot_username }}';

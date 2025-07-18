@@ -4,7 +4,7 @@ inputs:
   claude_oauth_token:
     description: 'Claude Code OAuth token'
     required: true
-  github_token:
+  bot_token:
     description: 'GitHub token for repository access'
     required: true
   fetch_depth:
@@ -37,7 +37,7 @@ runs:
       uses: actions/checkout@v4
       with:
         fetch-depth: ${{ inputs.fetch_depth }}
-        token: ${{ inputs.github_token }}
+        token: ${{ inputs.bot_token }}
 
     - name: Configure Git
       if: inputs.configure_git == 'true'
@@ -48,7 +48,7 @@ runs:
     - name: Validate Claude OAuth Token
       shell: bash
       run: |
-        ${{ github.action_path }}/scripts/validate_token.sh "${{ inputs.claude_oauth_token }}" "${{ inputs.github_token }}"
+        ${{ github.action_path }}/scripts/validate_token.sh "${{ inputs.claude_oauth_token }}" "${{ inputs.bot_token }}"
 
     - name: Set repository path output
       id: set-path
