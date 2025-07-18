@@ -84,7 +84,7 @@ jobs:
         uses: batumi-works/actions-lib/actions/claude-setup@v1
         with:
           claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
-          github_token: ${{ secrets.bot_token }}
+          bot_token: ${{ secrets.bot_token }}
           git_user_name: ${{ inputs.git_user_name }}
           git_user_email: ${{ inputs.git_user_email }}
           fetch_depth: 0
