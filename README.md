@@ -4,20 +4,29 @@ Centralized GitHub Actions library for Batumi Works repositories, providing reus
 
 ## 🚀 Quick Start
 
+> **Important**: All workflows require specific permissions to function correctly. See the [Permissions](#permissions) section below.
+
 ### For PRP Implementation
 ```yaml
 name: Claude PRP Implementation
 on:
   issue_comment:
     types: [created]
+
+# Required permissions for the workflow
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   implement-prp:
-    uses: batumi-works/actions-lib/.github/workflows/claude-prp-pipeline.yml@v1
+    uses: batumi-works/actions-lib/.github/workflows/claude-prp-pipeline.yml@v1.3.0
     with:
       api_provider: "anthropic"
     secrets:
       claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      github_token: ${{ secrets.GITHUB_TOKEN }}
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### For PRP Creation
@@ -28,6 +37,12 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+
+# Required permissions for the workflow
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
   schedule:
     - cron: '*/30 * * * *'
 jobs:
@@ -37,8 +52,35 @@ jobs:
       api_provider: "anthropic"
     secrets:
       claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      github_token: ${{ secrets.GITHUB_TOKEN }}
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## 🔐 Permissions
+
+All reusable workflows in this library require specific GitHub Actions permissions to function correctly. When calling these workflows, you **must** specify the required permissions in your workflow file.
+
+### Required Permissions
+
+| Workflow | Contents | Issues | Pull Requests |
+|----------|----------|---------|---------------|
+| `claude-agent-pipeline.yml` | write | write | read |
+| `claude-prp-pipeline.yml` | write | write | write |
+
+### Why These Permissions Are Needed
+
+- **contents: write** - Required to create branches, commit changes, and push to the repository
+- **issues: write** - Required to comment on issues with status updates and results
+- **pull-requests: read/write** - Required to check PR references and create new pull requests
+
+### Common Permission Errors
+
+If you see this error:
+```
+The nested job 'xyz' is requesting 'contents: write, issues: write', 
+but is only allowed 'contents: read, issues: none'
+```
+
+It means your calling workflow needs to add the permissions block shown in the examples above.
 
 ## 📂 Library Structure
 
@@ -61,7 +103,7 @@ Common setup steps for Claude Code workflows.
 
 **Inputs:**
 - `claude_oauth_token` (required): Claude Code OAuth token
-- `github_token` (required): GitHub token for repository access
+- `bot_token` (required): GitHub token for repository access
 - `fetch_depth` (default: '0'): Number of commits to fetch
 - `git_user_name` (default: 'Claude AI Bot'): Git user name
 - `git_user_email` (default: 'claude-ai@users.noreply.github.com'): Git user email
@@ -89,7 +131,7 @@ PRP file and branch management operations.
 GitHub API operations for PRs, issues, and comments.
 
 **Inputs:**
-- `github_token` (required): GitHub token for API operations
+- `bot_token` (required): GitHub token for API operations
 - `operation` (required): Type of operation: `create-pr`, `comment-issue`, `check-bot-status`
 - `issue_number`: GitHub issue number
 - `pr_title`: Pull request title
@@ -201,7 +243,7 @@ jobs:
       api_provider: "anthropic"
     secrets:
       claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      github_token: ${{ secrets.GITHUB_TOKEN }}
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Configuration Migration
