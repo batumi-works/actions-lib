@@ -1,0 +1,444 @@
+name: 'Claude PRP Implementation Pipeline (Enhanced)'
+
+on:
+  workflow_call:
+    inputs:
+      api_provider:
+        description: 'API provider: anthropic or moonshot'
+        required: false
+        type: string
+        default: 'anthropic'
+      anthropic_base_url:
+        description: 'Base URL for Anthropic API (for Moonshot compatibility)'
+        required: false
+        type: string
+        default: ''
+      timeout_minutes:
+        description: 'Timeout for Claude Code execution'
+        required: false
+        type: number
+        default: 90
+      allowed_tools:
+        description: 'Allowed tools for Claude Code'
+        required: false
+        type: string
+        default: 'Bash,Read,Write,Edit,Glob,Grep,Task,LS,MultiEdit,NotebookRead,NotebookEdit,WebFetch,WebSearch,TodoWrite'
+      claude_model:
+        description: 'Claude model to use'
+        required: false
+        type: string
+        default: 'claude-sonnet-4-20250514'
+      skip_pr_check:
+        description: 'Skip PR reference check (for debugging)'
+        required: false
+        type: boolean
+        default: false
+      git_user_name:
+        description: 'Git user name for commits'
+        required: false
+        type: string
+        default: 'Claude PRP Implementation Bot'
+      git_user_email:
+        description: 'Git user email for commits'
+        required: false
+        type: string
+        default: 'claude-prp-bot@users.noreply.github.com'
+      enable_cache:
+        description: 'Enable dependency caching'
+        required: false
+        type: boolean
+        default: true
+      max_retry_attempts:
+        description: 'Maximum retry attempts for API calls'
+        required: false
+        type: number
+        default: 3
+      debug_mode:
+        description: 'Enable debug mode for detailed logging'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      claude_oauth_token:
+        description: 'Claude Code OAuth token'
+        required: false
+      anthropic_auth_token:
+        description: 'Anthropic API token (for Moonshot)'
+        required: false
+      bot_token:
+        description: 'GitHub token for API operations'
+        required: true
+
+# Ensure permissions are documented
+permissions:
+  contents: write      # Required for creating branches and commits
+  issues: write        # Required for commenting on issues
+  pull-requests: write # Required for creating pull requests
+
+jobs:
+  implement-prp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Overall job timeout
+    
+    # Skip if comment references a PR (unless explicitly disabled)
+    if: "${{ inputs.skip_pr_check || !contains(github.event.comment.body, 'PR #') }}"
+    
+    steps:
+      # Step 1: Log workflow start
+      - name: Log Workflow Start
+        run: |
+          echo "::notice title=Workflow Started::Starting PRP implementation workflow"
+          echo "::group::Workflow Configuration"
+          echo "API Provider: ${{ inputs.api_provider }}"
+          echo "Model: ${{ inputs.claude_model }}"
+          echo "Timeout: ${{ inputs.timeout_minutes }} minutes"
+          echo "Cache Enabled: ${{ inputs.enable_cache }}"
+          echo "Debug Mode: ${{ inputs.debug_mode }}"
+          echo "::endgroup::"
+
+      # Step 2: Validate API Configuration
+      - name: Validate API Configuration
+        run: |
+          echo "::group::API Configuration Validation"
+          
+          # Function to validate configuration
+          validate_config() {
+            local provider="$1"
+            local has_oauth="${2:-false}"
+            local has_api_key="${3:-false}"
+            
+            case "$provider" in
+              "anthropic")
+                if [[ "$has_oauth" != "true" ]]; then
+                  echo "::error title=Missing Secret::claude_oauth_token is required for Anthropic API"
+                  return 1
+                fi
+                ;;
+              "moonshot")
+                if [[ "$has_api_key" != "true" ]]; then
+                  echo "::error title=Missing Secret::anthropic_auth_token is required for Moonshot API"
+                  return 1
+                fi
+                ;;
+              *)
+                echo "::error title=Invalid Provider::Unknown API provider: $provider"
+                return 1
+                ;;
+            esac
+            
+            echo "✅ API configuration validated for: $provider"
+            return 0
+          }
+          
+          # Check secret availability
+          has_oauth="false"
+          has_api_key="false"
+          
+          [[ -n "${{ secrets.claude_oauth_token }}" ]] && has_oauth="true"
+          [[ -n "${{ secrets.anthropic_auth_token }}" ]] && has_api_key="true"
+          
+          validate_config "${{ inputs.api_provider }}" "$has_oauth" "$has_api_key"
+          
+          echo "::endgroup::"
+
+      # Step 3: Cache Dependencies
+      - name: Cache Dependencies
+        if: inputs.enable_cache
+        uses: actions/cache@e12d46a63a90f2fae62d114769bbf2a179198b5c # v3.3.3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.npm
+            /usr/local/bin/bats
+            /usr/local/lib/bats
+          key: prp-deps-${{ runner.os }}-${{ hashFiles('**/package-lock.json', '**/requirements.txt', 'tests/bats-setup.bash') }}
+          restore-keys: |
+            prp-deps-${{ runner.os }}-
+
+      # Step 4: Setup Claude Environment (Enhanced)
+      - name: Setup Claude Environment
+        uses: batumi-works/actions-lib/actions/claude-setup-v2@main
+        with:
+          claude_oauth_token: ${{ secrets.claude_oauth_token || secrets.anthropic_auth_token }}
+          bot_token: ${{ secrets.bot_token }}
+          git_user_name: ${{ inputs.git_user_name }}
+          git_user_email: ${{ inputs.git_user_email }}
+          fetch_depth: 0
+          enable_cache: ${{ inputs.enable_cache }}
+
+      # Step 5: Manage PRP with Error Handling
+      - name: Manage PRP
+        id: prp
+        uses: batumi-works/actions-lib/actions/prp-management@v1
+        with:
+          comment_body: ${{ github.event.comment.body }}
+          issue_number: ${{ github.event.issue.number }}
+          create_branch: true
+          move_to_done: true
+
+      # Step 6: Skip if No PRP Found
+      - name: Check PRP Status
+        if: steps.prp.outputs.has_prp == 'false'
+        run: |
+          echo "::warning title=No PRP Found::No valid PRP found in comment, skipping implementation"
+          echo "Comment body: ${{ github.event.comment.body }}"
+          exit 0
+
+      # Step 7: Implement PRP with Claude Code (with retry)
+      - name: Implement PRP with Claude Code
+        if: steps.prp.outputs.has_prp == 'true'
+        id: claude-implementation
+        uses: nick-invision/retry@7152eba30c6575329ac0576536151aca5a72780e # v3.0.0
+        with:
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          max_attempts: ${{ inputs.max_retry_attempts }}
+          retry_on: timeout
+          warning_on_retry: true
+          command: |
+            # Run Claude Code with proper error handling
+            set -euo pipefail
+            
+            echo "::group::Claude Code Execution"
+            echo "Prompt file: /tmp/prp-implementation-prompt.md"
+            echo "Allowed tools: ${{ inputs.allowed_tools }}"
+            echo "::endgroup::"
+            
+            # Set environment variables
+            export ANTHROPIC_BASE_URL="${{ inputs.anthropic_base_url }}"
+            
+            # Execute based on provider
+            if [[ "${{ inputs.api_provider }}" == "anthropic" ]]; then
+              npx -y @anthropic/claude-code-base-action@beta \
+                --prompt-file /tmp/prp-implementation-prompt.md \
+                --allowed-tools "${{ inputs.allowed_tools }}" \
+                --timeout-minutes ${{ inputs.timeout_minutes }} \
+                --claude-code-oauth-token "${{ secrets.claude_oauth_token }}" \
+                --model "${{ inputs.claude_model }}"
+            else
+              npx -y @anthropic/claude-code-base-action@beta \
+                --prompt-file /tmp/prp-implementation-prompt.md \
+                --allowed-tools "${{ inputs.allowed_tools }}" \
+                --timeout-minutes ${{ inputs.timeout_minutes }} \
+                --anthropic-api-key "${{ secrets.anthropic_auth_token }}" \
+                --model "${{ inputs.claude_model }}"
+            fi
+
+      # Step 8: Commit Implementation with Validation
+      - name: Commit Implementation
+        id: commit
+        if: steps.prp.outputs.has_prp == 'true'
+        shell: bash
+        run: |
+          echo "::group::Committing changes"
+          
+          # Add all changes
+          git add -A
+          
+          # Check for changes
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::notice title=No Changes::No changes to commit"
+          else
+            # Show what's being committed (in debug mode)
+            if [[ "${{ inputs.debug_mode }}" == "true" ]]; then
+              echo "::group::Changes to be committed"
+              git diff --staged --name-status
+              echo "::endgroup::"
+            fi
+            
+            # Commit with detailed message
+            git commit -m "feat: implement PRP ${{ steps.prp.outputs.prp_name }}
+
+🤖 Automated implementation from issue #${{ github.event.issue.number }}
+
+Implementation details:
+- API Provider: ${{ inputs.api_provider }}
+- Model: ${{ inputs.claude_model }}
+- PRP Path: ${{ steps.prp.outputs.prp_path }}
+
+Generated with Claude Code
+
+Co-Authored-By: Claude <noreply@anthropic.com>" || {
+              echo "::error title=Commit Failed::Failed to commit changes"
+              exit 1
+            }
+            
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "::notice title=Changes Committed::Successfully committed implementation"
+          fi
+          
+          echo "::endgroup::"
+
+      # Step 9: Push Implementation Branch
+      - name: Push Implementation Branch
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          echo "::group::Pushing branch"
+          
+          # Push with retry logic
+          max_attempts=3
+          attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Push attempt $attempt of $max_attempts"
+            
+            if git push origin "${{ steps.prp.outputs.branch_name }}"; then
+              echo "::notice title=Branch Pushed::Successfully pushed branch: ${{ steps.prp.outputs.branch_name }}"
+              break
+            fi
+            
+            if [ $attempt -lt $max_attempts ]; then
+              echo "Push failed, retrying in 5 seconds..."
+              sleep 5
+              git pull --rebase origin "${{ steps.prp.outputs.branch_name }}" || true
+            fi
+            
+            ((attempt++))
+          done
+          
+          if [ $attempt -gt $max_attempts ]; then
+            echo "::error title=Push Failed::Failed to push branch after $max_attempts attempts"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+      # Step 10: Create Pull Request with Retry
+      - name: Create Pull Request
+        id: create-pr
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        uses: nick-invision/retry@7152eba30c6575329ac0576536151aca5a72780e # v3.0.0
+        with:
+          timeout_minutes: 5
+          max_attempts: ${{ inputs.max_retry_attempts }}
+          retry_on: error
+          warning_on_retry: true
+          command: |
+            # Use the GitHub operations action
+            echo "::group::Creating Pull Request"
+            
+            # Create PR body with enhanced information
+            cat > /tmp/pr-body.md << 'EOF'
+            ## 🤖 Automated PRP Implementation
+
+            **Implements:** `${{ steps.prp.outputs.prp_path }}`
+            **Triggered by:** Issue #${{ github.event.issue.number }}
+            **API Provider:** ${{ inputs.api_provider }}
+            **Model:** ${{ inputs.claude_model }}
+
+            ### Implementation Details
+            - ✅ PRP processed and moved to done folder
+            - 🌿 Implementation branch: `${{ steps.prp.outputs.branch_name }}`
+            - ⏱️ Execution time: ~${{ inputs.timeout_minutes }} minutes
+            - 🔧 Tools used: ${{ inputs.allowed_tools }}
+
+            ### Quality Checks
+            - [ ] Code follows project conventions
+            - [ ] Tests pass (if applicable)
+            - [ ] Documentation updated (if needed)
+            - [ ] No security vulnerabilities introduced
+
+            ### Related Links
+            - Original Issue: #${{ github.event.issue.number }}
+            - PRP File: [`${{ steps.prp.outputs.prp_path }}`](${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.prp.outputs.branch_name }}/${{ steps.prp.outputs.prp_path }})
+
+            ---
+            🚀 Generated with [Claude Code](https://claude.ai/code) using ${{ inputs.api_provider }} API
+
+            Co-Authored-By: Claude <noreply@anthropic.com>
+            EOF
+            
+            # Execute the action
+            uses: batumi-works/actions-lib/actions/github-operations@v1
+            with:
+              bot_token: ${{ secrets.bot_token }}
+              operation: create-pr
+              pr_title: "feat: implement ${{ steps.prp.outputs.prp_name }}"
+              pr_head: ${{ steps.prp.outputs.branch_name }}
+              pr_base: main
+              pr_body_file: /tmp/pr-body.md
+              draft_pr: false
+            
+            echo "::endgroup::"
+
+      # Step 11: Comment Success on Issue
+      - name: Comment Success on Issue
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'true'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          bot_token: ${{ secrets.bot_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            ## 🚀 PRP Implementation Complete!
+
+            **Implemented:** `${{ steps.prp.outputs.prp_path }}`
+            **Pull Request:** #${{ steps.create-pr.outputs.pr_number }}
+            **Branch:** `${{ steps.prp.outputs.branch_name }}`
+
+            ### Summary
+            - **API Provider:** ${{ inputs.api_provider }}
+            - **Model:** ${{ inputs.claude_model }}
+            - **Status:** ✅ Successfully implemented
+
+            ### Next Steps
+            1. Review the pull request: ${{ steps.create-pr.outputs.pr_url }}
+            2. Run CI/CD checks
+            3. Merge when ready
+
+            Ready for review! 🎉
+
+      # Step 12: Comment No Changes on Issue
+      - name: Comment No Changes on Issue
+        if: steps.prp.outputs.has_prp == 'true' && steps.commit.outputs.has_changes == 'false'
+        uses: batumi-works/actions-lib/actions/github-operations@v1
+        with:
+          bot_token: ${{ secrets.bot_token }}
+          operation: comment-issue
+          issue_number: ${{ github.event.issue.number }}
+          comment_body: |
+            ## ⚠️ PRP Implementation Status
+
+            **Attempted:** `${{ steps.prp.outputs.prp_path }}`
+            **Result:** No changes were generated
+
+            ### Details
+            - **API Provider:** ${{ inputs.api_provider }}
+            - **Model:** ${{ inputs.claude_model }}
+            - **Possible Reasons:**
+              - The PRP may already be implemented
+              - The requirements might need clarification
+              - The implementation might be complete in the current codebase
+
+            Please review the PRP and provide additional context if needed.
+
+      # Step 13: Upload Debug Artifacts (on failure)
+      - name: Upload Debug Artifacts
+        if: failure() && inputs.debug_mode
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+        with:
+          name: prp-implementation-debug-${{ github.run_id }}
+          path: |
+            /tmp/prp-implementation-prompt.md
+            .github/
+            *.log
+          retention-days: 7
+
+      # Step 14: Final Status Report
+      - name: Final Status Report
+        if: always()
+        run: |
+          echo "::group::Workflow Summary"
+          echo "Job Status: ${{ job.status }}"
+          echo "PRP Found: ${{ steps.prp.outputs.has_prp }}"
+          echo "Changes Made: ${{ steps.commit.outputs.has_changes }}"
+          echo "PR Created: ${{ steps.create-pr.outputs.pr_number && 'Yes' || 'No' }}"
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "::notice title=Success::Workflow completed successfully"
+          else
+            echo "::error title=Failed::Workflow failed with status: ${{ job.status }}"
+          fi
+          
+          echo "::endgroup::"

@@ -1,0 +1,263 @@
+name: 'Claude Setup (Enhanced)'
+description: |
+  Enhanced Claude environment setup with best practices including:
+  - Security: Input validation and secure token handling
+  - Performance: Caching and optimized checkout
+  - Reliability: Error handling and retry logic
+  - Observability: Structured logging and debug artifacts
+
+branding:
+  icon: 'settings'
+  color: 'purple'
+
+inputs:
+  claude_oauth_token:
+    description: 'Claude Code OAuth token for authentication'
+    required: true
+  bot_token:
+    description: 'GitHub token for repository operations'
+    required: true
+  fetch_depth:
+    description: 'Number of commits to fetch (0 for all history)'
+    required: false
+    default: '1'
+  git_user_name:
+    description: 'Git user name for commits'
+    required: false
+    default: 'Claude AI Bot'
+  git_user_email:
+    description: 'Git user email for commits'
+    required: false
+    default: 'claude-ai@users.noreply.github.com'
+  configure_git:
+    description: 'Whether to configure git user'
+    required: false
+    default: 'true'
+  enable_cache:
+    description: 'Enable caching for better performance'
+    required: false
+    default: 'true'
+  lfs:
+    description: 'Whether to download Git LFS files'
+    required: false
+    default: 'false'
+  submodules:
+    description: 'Whether to checkout submodules'
+    required: false
+    default: 'false'
+
+outputs:
+  repository_path:
+    description: 'Path to the checked out repository'
+    value: ${{ steps.set-outputs.outputs.repository_path }}
+  cache_hit:
+    description: 'Whether cache was hit'
+    value: ${{ steps.cache-git-config.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+    # Step 1: Input Validation
+    - name: Validate Required Inputs
+      shell: bash
+      run: |
+        echo "::group::Validating inputs"
+        
+        # Check required inputs
+        if [[ -z "${{ inputs.claude_oauth_token }}" ]]; then
+          echo "::error title=Missing Input::claude_oauth_token is required"
+          exit 1
+        fi
+        
+        if [[ -z "${{ inputs.bot_token }}" ]]; then
+          echo "::error title=Missing Input::bot_token is required"
+          exit 1
+        fi
+        
+        # Validate fetch_depth is a number
+        if ! [[ "${{ inputs.fetch_depth }}" =~ ^[0-9]+$ ]]; then
+          echo "::error title=Invalid Input::fetch_depth must be a number"
+          exit 1
+        fi
+        
+        echo "✅ All required inputs validated"
+        echo "::endgroup::"
+
+    # Step 2: Cache Git Configuration (if enabled)
+    - name: Cache Git Configuration
+      id: cache-git-config
+      if: inputs.enable_cache == 'true' && inputs.configure_git == 'true'
+      uses: actions/cache@e12d46a63a90f2fae62d114769bbf2a179198b5c # v3.3.3
+      with:
+        path: |
+          ~/.gitconfig
+          ~/.git-credentials
+        key: claude-setup-git-${{ runner.os }}-${{ hashFiles('.github/**') }}
+        restore-keys: |
+          claude-setup-git-${{ runner.os }}-
+
+    # Step 3: Optimized Repository Checkout
+    - name: Checkout Repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      with:
+        token: ${{ inputs.bot_token }}
+        fetch-depth: ${{ inputs.fetch_depth }}
+        lfs: ${{ inputs.lfs }}
+        submodules: ${{ inputs.submodules }}
+        persist-credentials: true
+
+    # Step 4: Configure Git (with error handling)
+    - name: Configure Git User
+      if: inputs.configure_git == 'true'
+      shell: bash
+      run: |
+        echo "::group::Configuring Git"
+        set -euo pipefail
+        
+        # Function to safely configure git
+        configure_git_setting() {
+          local setting="$1"
+          local value="$2"
+          local scope="${3:-global}"
+          
+          if ! git config --"$scope" "$setting" "$value"; then
+            echo "::error title=Git Config Failed::Failed to set $setting"
+            return 1
+          fi
+          echo "✅ Set $setting = $value"
+        }
+        
+        # Configure user settings
+        configure_git_setting "user.name" "${{ inputs.git_user_name }}"
+        configure_git_setting "user.email" "${{ inputs.git_user_email }}"
+        
+        # Configure safety settings
+        configure_git_setting "safe.directory" "$GITHUB_WORKSPACE"
+        
+        # Show current configuration
+        echo ""
+        echo "Current Git configuration:"
+        git config --list | grep -E "^user\.|^safe\." || true
+        
+        echo "::endgroup::"
+
+    # Step 5: Validate Token Access
+    - name: Validate Token Access
+      shell: bash
+      run: |
+        echo "::group::Validating token access"
+        
+        # Create script for validation with retry
+        cat > /tmp/validate-access.sh << 'EOF'
+        #!/bin/bash
+        set -euo pipefail
+        
+        # Function to check GitHub API access
+        check_github_access() {
+          local response
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $1" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/user")
+          
+          if [[ "$response" == "200" ]]; then
+            echo "✅ GitHub token validated successfully"
+            return 0
+          else
+            echo "::warning title=Token Validation::GitHub API returned status $response"
+            return 1
+          fi
+        }
+        
+        # Retry logic
+        max_attempts=3
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt of $max_attempts"
+          
+          if check_github_access "${{ inputs.bot_token }}"; then
+            break
+          fi
+          
+          if [ $attempt -lt $max_attempts ]; then
+            echo "Retrying in 5 seconds..."
+            sleep 5
+          fi
+          
+          ((attempt++))
+        done
+        
+        if [ $attempt -gt $max_attempts ]; then
+          echo "::error title=Token Validation Failed::Failed to validate GitHub token after $max_attempts attempts"
+          exit 1
+        fi
+        EOF
+        
+        chmod +x /tmp/validate-access.sh
+        /tmp/validate-access.sh
+        
+        echo "::endgroup::"
+
+    # Step 6: Set Output Values
+    - name: Set Output Values
+      id: set-outputs
+      shell: bash
+      run: |
+        echo "::group::Setting outputs"
+        
+        # Set repository path
+        echo "repository_path=$GITHUB_WORKSPACE" >> $GITHUB_OUTPUT
+        echo "✅ repository_path = $GITHUB_WORKSPACE"
+        
+        # Log environment info for debugging
+        echo ""
+        echo "Environment Information:"
+        echo "- Runner OS: ${{ runner.os }}"
+        echo "- Working Directory: $(pwd)"
+        echo "- GitHub Workspace: $GITHUB_WORKSPACE"
+        echo "- GitHub Repository: $GITHUB_REPOSITORY"
+        echo "- GitHub Ref: $GITHUB_REF"
+        echo "- GitHub SHA: $GITHUB_SHA"
+        
+        echo "::endgroup::"
+
+    # Step 7: Create Debug Information (on failure)
+    - name: Collect Debug Information
+      if: failure()
+      shell: bash
+      run: |
+        echo "::group::Debug Information"
+        
+        # Create debug directory
+        mkdir -p /tmp/claude-setup-debug
+        
+        # Collect system information
+        {
+          echo "=== System Information ==="
+          uname -a
+          echo ""
+          echo "=== Environment Variables ==="
+          env | grep -E "^GITHUB_|^RUNNER_" | sort
+          echo ""
+          echo "=== Git Configuration ==="
+          git config --list || echo "Git config failed"
+          echo ""
+          echo "=== Repository Status ==="
+          git status || echo "Git status failed"
+          echo ""
+          echo "=== Directory Contents ==="
+          ls -la || echo "Directory listing failed"
+        } > /tmp/claude-setup-debug/debug-info.txt
+        
+        echo "Debug information collected at /tmp/claude-setup-debug/"
+        echo "::endgroup::"
+
+    # Step 8: Upload Debug Artifacts (on failure)
+    - name: Upload Debug Artifacts
+      if: failure()
+      uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+      with:
+        name: claude-setup-debug-${{ github.run_id }}-${{ github.run_attempt }}
+        path: /tmp/claude-setup-debug/
+        retention-days: 7

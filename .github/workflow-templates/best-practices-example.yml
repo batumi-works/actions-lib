@@ -1,0 +1,262 @@
+name: 'Best Practices Example Workflow'
+description: 'Example workflow demonstrating all GitHub Actions best practices'
+
+on:
+  # Specific triggers with path filters
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - '.github/workflows/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Enable debug mode'
+        type: boolean
+        default: false
+
+# Define permissions explicitly (least privilege)
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+# Concurrency control to prevent duplicate runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job 1: Setup and Validation
+  setup:
+    name: Setup and Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+      should-deploy: ${{ steps.check-deploy.outputs.should-deploy }}
+    
+    steps:
+      # Use pinned versions for security
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          fetch-depth: 1
+          lfs: false
+          
+      # Generate cache key
+      - name: Generate Cache Key
+        id: cache-key
+        run: |
+          echo "key=${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}" >> $GITHUB_OUTPUT
+          
+      # Check if deployment is needed
+      - name: Check Deployment Conditions
+        id: check-deploy
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Job 2: Parallel Testing with Matrix
+  test:
+    name: Test (${{ matrix.test-suite }} on ${{ matrix.os }})
+    needs: setup
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        test-suite: [unit, integration, e2e]
+        exclude:
+          # Skip expensive e2e tests on macOS
+          - os: macos-latest
+            test-suite: e2e
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      # Cache dependencies for performance
+      - name: Cache Dependencies
+        uses: actions/cache@e12d46a63a90f2fae62d114769bbf2a179198b5c # v3.3.3
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: ${{ needs.setup.outputs.cache-key }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+            
+      # Setup with specific version
+      - name: Setup Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.1
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      # Install with retry for reliability
+      - name: Install Dependencies
+        uses: nick-invision/retry@7152eba30c6575329ac0576536151aca5a72780e # v3.0.0
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_on: error
+          command: npm ci
+          
+      # Run tests with proper error handling
+      - name: Run Tests
+        id: test
+        run: |
+          set -euo pipefail
+          npm run test:${{ matrix.test-suite }} -- --reporter=junit --reporter-option output=test-results/junit.xml
+        continue-on-error: true
+        
+      # Upload test results
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.test-suite }}
+          path: test-results/
+          retention-days: 7
+          
+      # Report test results
+      - name: Test Report
+        if: always()
+        uses: dorny/test-reporter@afe6793191b75b608954023a46831a3fe10048d4 # v1.7.0
+        with:
+          name: Test Results (${{ matrix.os }} - ${{ matrix.test-suite }})
+          path: 'test-results/*.xml'
+          reporter: jest-junit
+          fail-on-error: false
+          
+      # Fail job if tests failed
+      - name: Check Test Status
+        if: steps.test.outcome == 'failure'
+        run: |
+          echo "::error title=Tests Failed::${{ matrix.test-suite }} tests failed on ${{ matrix.os }}"
+          exit 1
+
+  # Job 3: Security Scanning
+  security:
+    name: Security Scan
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      # Run security scans
+      - name: Run Security Scan
+        run: |
+          echo "::group::Security Scanning"
+          # Add your security scanning commands here
+          # npm audit
+          # snyk test
+          echo "Security scan completed"
+          echo "::endgroup::"
+
+  # Job 4: Build with Docker caching
+  build:
+    name: Build Application
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      # Setup Docker Buildx for advanced features
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+        
+      # Build with layer caching
+      - name: Build Docker Image
+        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # v5.1.0
+        with:
+          context: .
+          push: false
+          tags: app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+
+  # Job 5: Deploy (conditional)
+  deploy:
+    name: Deploy to Production
+    needs: [setup, build]
+    if: needs.setup.outputs.should-deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      # Deploy with proper error handling
+      - name: Deploy Application
+        run: |
+          echo "::notice title=Deployment::Starting deployment to production"
+          # Add deployment commands here
+          echo "Deployment completed successfully"
+
+  # Job 6: Cleanup and Notifications
+  cleanup:
+    name: Cleanup and Notify
+    needs: [test, build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      # Collect all artifacts for debugging
+      - name: Download All Artifacts
+        if: failure()
+        uses: actions/download-artifact@f44cd7b40bfd40b6aa1cc1b9b5b7bf03d3c67110 # v4.1.0
+        with:
+          path: debug-artifacts/
+          
+      # Create summary
+      - name: Create Job Summary
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Setup: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security: ${{ needs.security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy: ${{ needs.deploy.result || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          
+      # Send notifications (example)
+      - name: Send Notification
+        if: failure()
+        run: |
+          echo "::error title=Workflow Failed::The workflow has failed. Check the logs for details."
+          # Add notification logic here (Slack, email, etc.)
+
+# Workflow-level environment variables
+env:
+  NODE_ENV: production
+  CI: true
