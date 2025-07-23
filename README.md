@@ -29,6 +29,31 @@ jobs:
       bot_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### For PRP Implementation with Smart Runner Selection (v3)
+```yaml
+name: Claude PRP Implementation (Smart Runner)
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  implement-prp:
+    uses: batumi-works/actions-lib/.github/workflows/claude-prp-pipeline-v3.yml@main
+    with:
+      api_provider: "anthropic"
+      runner_type: "auto"  # Auto-detects: org→Blacksmith, personal→BuildJet
+      runner_size: "2vcpu" # Options: 2vcpu, 4vcpu, 8vcpu, 16vcpu
+      enable_runner_fallback: true
+    secrets:
+      claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      bot_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ### For PRP Creation
 ```yaml
 name: Claude Agent Pipeline
@@ -200,9 +225,34 @@ uses: batumi-works/actions-lib/.github/workflows/claude-prp-pipeline.yml@v1
 ```
 
 Available versions:
-- `@v1`: Latest v1.x.x (recommended)
-- `@v1.0.0`: Specific version
+- `@v1`: Latest v1.x.x (stable)
+- `@v2`: Enhanced with best practices (recommended)
+- `@v3`: Smart runner selection with fallback (latest)
 - `@main`: Latest development version (not recommended for production)
+
+## 🏃 Runner Configuration
+
+The library supports automatic runner selection with fallback for improved performance and reliability:
+
+### Automatic Runner Selection
+- **Organization repos (batumi-works)**: Uses Blacksmith runners (30-50% faster)
+- **Personal repos (batumilove)**: Uses BuildJet runners (35-65% faster)
+- **Other repos**: Uses standard GitHub-hosted runners
+- **Fallback**: Automatically falls back to GitHub-hosted runners if primary runners are unavailable
+
+### Configuration Options
+```yaml
+with:
+  runner_type: "auto"    # auto, org, personal, or default
+  runner_size: "2vcpu"   # 2vcpu, 4vcpu, 8vcpu, or 16vcpu
+  enable_runner_fallback: true
+```
+
+### Migration Scripts
+- Organization repos: `./scripts/migrate-to-blacksmith.sh`
+- Personal repos: `./scripts/migrate-to-buildjet.sh`
+
+See [Runner Configuration Guide](./docs/RUNNER_CONFIGURATION.md) for detailed setup instructions.
 
 ## 🔐 Security
 

@@ -1,0 +1,202 @@
+name: 'Smart Runner Template'
+description: 'Workflow template with automatic runner selection and fallback'
+
+on:
+  workflow_call:
+    inputs:
+      runner_type:
+        description: 'Runner type: auto, org, personal, or default'
+        type: string
+        default: 'auto'
+      runner_size:
+        description: 'Runner size: 2vcpu, 4vcpu, 8vcpu, or 16vcpu'
+        type: string
+        default: '2vcpu'
+      enable_fallback:
+        description: 'Enable fallback to GitHub-hosted runners'
+        type: boolean
+        default: true
+      timeout_minutes:
+        description: 'Timeout for the job'
+        type: number
+        default: 60
+
+jobs:
+  # Job 1: Determine the appropriate runner based on context
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      primary_runner: ${{ steps.select.outputs.primary_runner }}
+      fallback_runner: ${{ steps.select.outputs.fallback_runner }}
+      should_use_fallback: ${{ steps.select.outputs.should_use_fallback }}
+    steps:
+      - name: Determine Runner Configuration
+        id: select
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "::group::Runner Selection Logic"
+          
+          # Function to determine runner based on context
+          determine_runner() {
+            local runner_type="${{ inputs.runner_type }}"
+            local runner_size="${{ inputs.runner_size }}"
+            local repo_owner="$REPOSITORY_OWNER"
+            
+            # Auto-detect runner type based on repository owner
+            if [[ "$runner_type" == "auto" ]]; then
+              if [[ "$repo_owner" == "batumi-works" ]]; then
+                runner_type="org"
+              elif [[ "$repo_owner" == "batumilove" ]]; then
+                runner_type="personal"
+              else
+                runner_type="default"
+              fi
+            fi
+            
+            # Select primary runner based on type
+            case "$runner_type" in
+              "org")
+                echo "blacksmith-${runner_size}-ubuntu-2204"
+                ;;
+              "personal")
+                echo "buildjet-${runner_size}-ubuntu-2204"
+                ;;
+              *)
+                echo "ubuntu-latest"
+                ;;
+            esac
+          }
+          
+          # Determine runners
+          primary=$(determine_runner)
+          fallback="ubuntu-latest"
+          
+          echo "Repository Owner: $REPOSITORY_OWNER"
+          echo "Runner Type: ${{ inputs.runner_type }}"
+          echo "Primary Runner: $primary"
+          echo "Fallback Runner: $fallback"
+          
+          # Set outputs
+          echo "primary_runner=$primary" >> $GITHUB_OUTPUT
+          echo "fallback_runner=$fallback" >> $GITHUB_OUTPUT
+          echo "should_use_fallback=${{ inputs.enable_fallback }}" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+
+  # Job 2: Attempt to run on primary runner
+  run-primary:
+    needs: select-runner
+    runs-on: ${{ needs.select-runner.outputs.primary_runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    continue-on-error: ${{ inputs.enable_fallback }}
+    outputs:
+      completed: ${{ steps.check.outputs.completed }}
+      status: ${{ job.status }}
+    steps:
+      - name: Runner Information
+        run: |
+          echo "::notice title=Runner Info::Running on primary runner: ${{ needs.select-runner.outputs.primary_runner }}"
+          echo "System Information:"
+          echo "- Hostname: $(hostname)"
+          echo "- CPU: $(nproc) cores"
+          echo "- Memory: $(free -h | grep Mem | awk '{print $2}')"
+          echo "- Disk: $(df -h / | tail -1 | awk '{print $4}' available)"
+          
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      - name: Execute Workflow Steps
+        id: execute
+        run: |
+          echo "::group::Primary Workflow Execution"
+          # Your actual workflow steps go here
+          echo "Executing on primary runner..."
+          echo "::endgroup::"
+          
+      - name: Mark Completion
+        id: check
+        if: success()
+        run: |
+          echo "completed=true" >> $GITHUB_OUTPUT
+          echo "::notice title=Success::Primary runner completed successfully"
+
+  # Job 3: Fallback job (only runs if primary fails and fallback is enabled)
+  run-fallback:
+    needs: [select-runner, run-primary]
+    if: |
+      inputs.enable_fallback && 
+      needs.run-primary.outputs.completed != 'true'
+    runs-on: ${{ needs.select-runner.outputs.fallback_runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - name: Fallback Notice
+        run: |
+          echo "::warning title=Fallback Active::Primary runner failed or unavailable, using fallback runner"
+          echo "Primary runner attempted: ${{ needs.select-runner.outputs.primary_runner }}"
+          echo "Now running on: ${{ needs.select-runner.outputs.fallback_runner }}"
+          
+      - name: Runner Information
+        run: |
+          echo "System Information:"
+          echo "- Hostname: $(hostname)"
+          echo "- CPU: $(nproc) cores"
+          echo "- Memory: $(free -h | grep Mem | awk '{print $2}')"
+          echo "- Disk: $(df -h / | tail -1 | awk '{print $4}' available)"
+          
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        
+      - name: Execute Workflow Steps
+        run: |
+          echo "::group::Fallback Workflow Execution"
+          # Your actual workflow steps go here (same as primary)
+          echo "Executing on fallback runner..."
+          echo "::endgroup::"
+          
+      - name: Report Fallback Usage
+        if: always()
+        run: |
+          echo "::notice title=Fallback Complete::Workflow completed on fallback runner"
+          # Optionally report metrics or notify about fallback usage
+
+  # Job 4: Final status check
+  workflow-status:
+    needs: [run-primary, run-fallback]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Workflow Summary
+        run: |
+          echo "## Workflow Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check primary job status
+          if [[ "${{ needs.run-primary.outputs.completed }}" == "true" ]]; then
+            echo "✅ **Primary Runner**: Success" >> $GITHUB_STEP_SUMMARY
+            echo "- Runner: ${{ needs.select-runner.outputs.primary_runner }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Primary Runner**: Failed or Unavailable" >> $GITHUB_STEP_SUMMARY
+            echo "- Runner: ${{ needs.select-runner.outputs.primary_runner }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check fallback job status
+          if [[ "${{ needs.run-fallback.result }}" == "success" ]]; then
+            echo "✅ **Fallback Runner**: Success" >> $GITHUB_STEP_SUMMARY
+            echo "- Runner: ${{ needs.select-runner.outputs.fallback_runner }}" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.run-fallback.result }}" == "skipped" ]]; then
+            echo "⏭️ **Fallback Runner**: Not Needed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Fallback Runner**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Overall status
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.run-primary.outputs.completed }}" == "true" ]] || [[ "${{ needs.run-fallback.result }}" == "success" ]]; then
+            echo "### ✅ Overall Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Overall Status: FAILED" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
