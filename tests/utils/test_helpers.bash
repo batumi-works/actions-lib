@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Common test helper functions for GitHub Actions testing
 
+# Source YAML helpers if available
+if [[ -f "${BASH_SOURCE%/*}/yaml_helpers.bash" ]]; then
+    source "${BASH_SOURCE%/*}/yaml_helpers.bash"
+fi
+
 # Assert that a file exists
 assert_file_exists() {
     local file="$1"

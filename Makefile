@@ -1,6 +1,6 @@
 # Makefile for GitHub Actions Library Testing
 
-.PHONY: help test test-unit test-integration test-e2e test-coverage test-cached test-cache-clear setup-test-env clean-test-env install-deps docker-build docker-test docker-unit docker-integration docker-security docker-performance docker-shell docker-clean docker-logs docker-status
+.PHONY: help test test-unit test-integration test-e2e test-workflows test-coverage test-cached test-cache-clear setup-test-env clean-test-env install-deps docker-build docker-test docker-unit docker-integration docker-security docker-performance docker-shell docker-clean docker-logs docker-status
 
 # Configuration
 TEST_TMPDIR ?= $(shell mktemp -d 2>/dev/null || echo "/tmp")/bats-actions-test
@@ -14,6 +14,7 @@ help:
 	@echo "  test-unit         - Run unit tests only"
 	@echo "  test-integration  - Run integration tests only"
 	@echo "  test-e2e          - Run end-to-end tests only"
+	@echo "  test-workflows    - Run workflow tests only"
 	@echo "  test-coverage     - Run tests with coverage"
 	@echo "  test-cached       - Run tests with caching (faster)"
 	@echo "  test-cache-clear  - Clear test cache"
@@ -38,6 +39,7 @@ TEST_DIR := tests
 UNIT_DIR := $(TEST_DIR)/unit
 INTEGRATION_DIR := $(TEST_DIR)/integration
 E2E_DIR := $(TEST_DIR)/e2e
+WORKFLOWS_DIR := $(TEST_DIR)/workflows
 
 # Install test dependencies
 install-deps:
@@ -70,6 +72,25 @@ install-deps:
 			mkdir -p ~/bin && mv act ~/bin/ && \
 			echo "Installed act to ~/bin. Please ensure ~/bin is in your PATH."; \
 		}; \
+	}
+	@which yq >/dev/null 2>&1 || { \
+		echo "Installing yq for YAML validation..."; \
+		if command -v brew >/dev/null 2>&1; then \
+			brew install yq; \
+		else \
+			OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+			ARCH=$$(uname -m); \
+			if [ "$$ARCH" = "x86_64" ]; then ARCH="amd64"; \
+			elif [ "$$ARCH" = "aarch64" ] || [ "$$ARCH" = "arm64" ]; then ARCH="arm64"; \
+			else echo "Unsupported architecture: $$ARCH"; exit 1; fi; \
+			URL="https://github.com/mikefarah/yq/releases/latest/download/yq_$${OS}_$${ARCH}"; \
+			echo "Downloading yq from: $$URL"; \
+			sudo curl -L "$$URL" -o /usr/local/bin/yq 2>/dev/null || { \
+				mkdir -p ~/bin && curl -L "$$URL" -o ~/bin/yq && chmod +x ~/bin/yq && \
+				echo "Installed yq to ~/bin. Please ensure ~/bin is in your PATH."; \
+			}; \
+			sudo chmod +x /usr/local/bin/yq 2>/dev/null || true; \
+		fi; \
 	}
 	@echo "Dependencies installed successfully"
 
@@ -110,6 +131,12 @@ test-integration: setup-test-env
 test-e2e: setup-test-env
 	@echo "Running end-to-end tests..."
 	@cd $(E2E_DIR) && bats --recursive .
+	@$(MAKE) clean-test-env
+
+# Run workflow tests only
+test-workflows: setup-test-env
+	@echo "Running workflow tests..."
+	@cd $(WORKFLOWS_DIR) && bats --recursive .
 	@$(MAKE) clean-test-env
 
 # Run tests with coverage (requires additional tooling)
